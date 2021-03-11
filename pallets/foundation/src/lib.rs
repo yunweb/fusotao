@@ -79,7 +79,7 @@ decl_module! {
                 0
             } else {
                 let unlock_delay: T::BlockNumber = T::UnlockDelay::get();
-				let unlock_period: T::BlockNumber = T::UnlockPeriod::get();
+                let unlock_period: T::BlockNumber = T::UnlockPeriod::get();
                 if (now.saturating_sub(unlock_delay) % unlock_period) == Zero::zero() {
                     let unlock_ratio_each_period: Perbill = T::UnlockRatioEachPeriod::get();
                     let unlock_total_times = unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
