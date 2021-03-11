@@ -37,7 +37,7 @@ use sp_version::RuntimeVersion;
 
 pub use frame_support::{
     construct_runtime, parameter_types,
-    traits::{KeyOwnerProofSystem, Randomness, Imbalance},
+    traits::{Imbalance, KeyOwnerProofSystem, Randomness},
     weights::{
         constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
         IdentityFee, Weight,
@@ -120,7 +120,7 @@ pub const HOURS: BlockNumber = MINUTES * 60;
 pub const DAYS: BlockNumber = HOURS * 24;
 
 pub const MILLICENTS: Balance = 1_000_000_000;
-pub const CENTS: Balance = 1_000 * MILLICENTS;    // assume this is worth about a cent.
+pub const CENTS: Balance = 1_000 * MILLICENTS; // assume this is worth about a cent.
 pub const DOLLARS: Balance = 100 * CENTS;
 
 /// The version information used to identify this runtime when compiled natively.
@@ -260,22 +260,22 @@ impl pallet_balances::Trait for Runtime {
 }
 
 parameter_types! {
-	pub const CandidatePeriod: BlockNumber = 14 * DAYS;
-	pub const MinimumVotingLock: Balance = 1 * DOLLARS;
+    pub const CandidatePeriod: BlockNumber = 14 * DAYS;
+    pub const MinimumVotingLock: Balance = 1 * DOLLARS;
 }
 
 impl fuso_pallet_elections::Trait for Runtime {
-	type Event = Event;
-	type Currency = Balances;
-	type CandidatePeriod = CandidatePeriod;
-	type MinimumVotingLock = MinimumVotingLock;
-	type VoteIndex = u32;
-	type Locks = Runtime;
+    type Event = Event;
+    type Currency = Balances;
+    type CandidatePeriod = CandidatePeriod;
+    type MinimumVotingLock = MinimumVotingLock;
+    type VoteIndex = u32;
+    type Locks = Runtime;
 }
 
 parameter_types! {
     pub const UnlockDelay: BlockNumber = DAYS * 365;
-    pub const UnlockPeriod: u32 = DAYS;
+    pub const UnlockPeriod: BlockNumber = DAYS;
     pub const UnlockRatioEachPeriod: Perbill = Perbill::from_perthousand(1);
 }
 
@@ -325,14 +325,14 @@ impl OnUnbalanced<NegativeImbalance> for Author {
 
 pub struct DealWithFees;
 impl OnUnbalanced<NegativeImbalance> for DealWithFees {
-	  fn on_unbalanceds<B>(mut fees_then_tips: impl Iterator<Item=NegativeImbalance>) {
-		    if let Some(mut fees) = fees_then_tips.next() {
-			      if let Some(tips) = fees_then_tips.next() {
-				        tips.merge_into(&mut fees);
-			      }
+    fn on_unbalanceds<B>(mut fees_then_tips: impl Iterator<Item = NegativeImbalance>) {
+        if let Some(mut fees) = fees_then_tips.next() {
+            if let Some(tips) = fees_then_tips.next() {
+                tips.merge_into(&mut fees);
+            }
             Author::on_unbalanced(fees);
-		    }
-	  }
+        }
+    }
 }
 
 impl pallet_transaction_payment::Trait for Runtime {
@@ -363,14 +363,14 @@ impl fuso_pallet_receipts::Trait for Runtime {
 }
 
 parameter_types! {
-	  pub const UncleGenerations: BlockNumber = 5;
+      pub const UncleGenerations: BlockNumber = 5;
 }
 
 impl pallet_authorship::Trait for Runtime {
-	  type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Aura>;
-	  type UncleGenerations = UncleGenerations;
-	  type FilterUncle = ();
-	  type EventHandler = ();
+    type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Aura>;
+    type UncleGenerations = UncleGenerations;
+    type FilterUncle = ();
+    type EventHandler = ();
 }
 
 construct_runtime!(
@@ -393,7 +393,7 @@ construct_runtime!(
         Sudo: pallet_sudo::{Module, Call, Config<T>, Storage, Event<T>},
         Receipts: fuso_pallet_receipts::{Module, Call, Storage, Event<T>},
         Token: fuso_pallet_token::{Module, Call, Storage, Event<T>},
-		Elections: fuso_pallet_elections::{Module, Call, Storage, Event<T>},
+        Elections: fuso_pallet_elections::{Module, Call, Storage, Event<T>},
     }
 );
 

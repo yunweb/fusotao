@@ -14,13 +14,13 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 use frame_support::{
-    debug, decl_error, decl_event, decl_module, decl_storage, ensure,
+    decl_event, decl_module, decl_storage,
     traits::{Currency, Get, ReservableCurrency},
     weights::Weight,
 };
-use frame_system::ensure_root;
-use sp_runtime::{traits::Convert, Perbill};
-use sp_std::{collections::btree_set::BTreeSet, convert::TryInto, prelude::*};
+use sp_runtime::traits::{One, Saturating, Zero};
+use sp_runtime::Perbill;
+use sp_std::vec::Vec;
 
 pub type BalanceOf<T> =
     <<T as Trait>::Currency as Currency<<T as frame_system::Trait>::AccountId>>::Balance;
@@ -30,7 +30,7 @@ pub trait Trait: frame_system::Trait {
 
     type UnlockDelay: Get<Self::BlockNumber>;
 
-    type UnlockPeriod: Get<u32>;
+    type UnlockPeriod: Get<Self::BlockNumber>;
 
     type UnlockRatioEachPeriod: Get<Perbill>;
 
@@ -59,12 +59,7 @@ decl_event! {
         Balance = BalanceOf<T>,
     {
         PreLockedFundUnlocked(AccountId, Balance),
-    }
-}
-
-decl_error! {
-    pub enum Error for Module<T: Trait> {
-        Dummy,
+        FundAllUnlockBalance(AccountId),
     }
 }
 
@@ -73,16 +68,58 @@ decl_module! {
 
         fn deposit_event() = default;
 
+        const UnlockDelay: T::BlockNumber = T::UnlockDelay::get();
+
+        const UnlockPeriod: T::BlockNumber = T::UnlockPeriod::get();
+
+        const UnlockRatioEachPeriod: Perbill = T::UnlockRatioEachPeriod::get();
+
         fn on_initialize(now: T::BlockNumber) -> Weight {
             if now < T::UnlockDelay::get() {
                 0
             } else {
-                if TryInto::<u32>::try_into(now).ok().unwrap() % T::UnlockPeriod::get() == 0 {
-                    // TODO unlock some funds
-                    T::MaximumBlockWeight::get()
-                } else {
-                    0
+                let unlock_delay: T::BlockNumber = T::UnlockDelay::get();
+                if (now.saturating_sub(unlock_delay) % T::UnlockPeriod::get()) == Zero::zero() {
+                    let unlock_period: T::BlockNumber = T::UnlockPeriod::get();
+                    let unlock_ratio_each_period: Perbill = T::UnlockRatioEachPeriod::get();
+                    let unlock_total_times = unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
+                    let last_cycle_block = unlock_period.saturating_mul(unlock_total_times);
+                    let over_block = unlock_delay.saturating_add(last_cycle_block);
+                    if now <= over_block {
+                        Self::unlock_fund(now == over_block);
+                        return T::MaximumBlockWeight::get();
+                    }
                 }
+                0
+            }
+        }
+    }
+}
+
+impl<T: Trait> Module<T> {
+    fn unlock_fund(is_last: bool) {
+        for item in Foundation::<T>::iter() {
+            // (account, balance)
+            let account = item.0;
+            let all_reserve_balance: BalanceOf<T> = Self::foundation(&account);
+            let unlock_ratio_each_period = T::UnlockRatioEachPeriod::get();
+
+            // to be free balance
+            let to_free_balance = unlock_ratio_each_period.mul_floor(all_reserve_balance);
+
+            // if last block, free all reserved balance
+            if is_last {
+                let unlock_total_times =
+                    unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
+                let already_free_balance = to_free_balance.saturating_mul(unlock_total_times);
+                let last_to_free_balance = all_reserve_balance.saturating_sub(already_free_balance);
+                // unreserve
+                T::Currency::unreserve(&account, last_to_free_balance);
+                Self::deposit_event(RawEvent::FundAllUnlockBalance(account));
+            } else {
+                // unreserve
+                T::Currency::unreserve(&account, to_free_balance);
+                Self::deposit_event(RawEvent::PreLockedFundUnlocked(account, to_free_balance));
             }
         }
     }
