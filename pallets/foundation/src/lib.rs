@@ -59,7 +59,7 @@ decl_event! {
         Balance = BalanceOf<T>,
     {
         PreLockedFundUnlocked(AccountId, Balance),
-        FundAllUnlockBalance(AccountId),
+        UnlockedFundAllBalance(AccountId),
     }
 }
 
@@ -82,6 +82,7 @@ decl_module! {
                 let unlock_period: T::BlockNumber = T::UnlockPeriod::get();
                 if (now.saturating_sub(unlock_delay) % unlock_period) == Zero::zero() {
                     let unlock_ratio_each_period: Perbill = T::UnlockRatioEachPeriod::get();
+                    // round up, get total unlock cycle
                     let unlock_total_times = unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
                     let last_cycle_block = unlock_period.saturating_mul(unlock_total_times);
                     let over_block = unlock_delay.saturating_add(last_cycle_block);
@@ -109,13 +110,14 @@ impl<T: Trait> Module<T> {
 
             // if last block, free all reserved balance
             if is_last {
+                // round up, get total unlock cycle
                 let unlock_total_times =
                     unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
                 let already_free_balance = to_free_balance.saturating_mul(unlock_total_times);
                 let last_to_free_balance = all_reserve_balance.saturating_sub(already_free_balance);
                 // unreserve
                 T::Currency::unreserve(&account, last_to_free_balance);
-                Self::deposit_event(RawEvent::FundAllUnlockBalance(account));
+                Self::deposit_event(RawEvent::UnlockedFundAllBalance(account));
             } else {
                 // unreserve
                 T::Currency::unreserve(&account, to_free_balance);
