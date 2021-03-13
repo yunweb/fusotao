@@ -132,7 +132,7 @@ pub fn foundation_test_ext() -> sp_io::TestExternalities {
         .into();
 
     balances::GenesisConfig::<Test> {
-        balances: vec![(ALICE, 50000000000), (BOB, 510000000000), (CHRIS, 52000000000), (DAVE, 530000000000), (TEAM, 540000000000)],
+        balances: vec![(ALICE, 60000000000), (BOB, 610000000000), (CHRIS, 52000000000), (DAVE, 530000000000), (TEAM, 540000000000)],
     }
     .assimilate_storage(&mut t)
     .unwrap();

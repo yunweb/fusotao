@@ -158,3 +158,29 @@ fn test_already_free_all_balance() -> DispatchResult {
 
     Ok(())
 }
+
+#[test]
+fn other_reason_to_reserve_balance() -> DispatchResult {
+    foundation_test_ext().execute_with(|| -> DispatchResult {
+        init_reserve_balance()?;
+        run_to_block(1234);
+        // other reason reserve balance
+        Balances::reserve(&ALICE, 2000)?;
+        Balances::reserve(&BOB, 182346)?;
+
+        run_to_block(19996);
+        // last cycle to free all fund balance
+        assert_eq!(Balances::reserved_balance(&ALICE), 2000);
+        assert_eq!(Balances::reserved_balance(&BOB), 182346);
+
+
+        run_to_block(25000);
+
+        assert_eq!(Balances::reserved_balance(&ALICE), 2000);
+        assert_eq!(Balances::reserved_balance(&BOB), 182346);
+
+        Ok(())
+    })?;
+
+    Ok(())
+}
