@@ -22,6 +22,12 @@ use sp_runtime::traits::{One, Saturating, Zero};
 use sp_runtime::Perbill;
 use sp_std::vec::Vec;
 
+#[cfg(test)]
+mod mock;
+
+#[cfg(test)]
+mod tests;
+
 pub type BalanceOf<T> =
     <<T as Trait>::Currency as Currency<<T as frame_system::Trait>::AccountId>>::Balance;
 
@@ -87,7 +93,7 @@ decl_module! {
                     let last_cycle_block = unlock_period.saturating_mul(unlock_total_times);
                     let over_block = unlock_delay.saturating_add(last_cycle_block);
                     if now <= over_block {
-                        Self::unlock_fund(now == over_block);
+                        Self::unlock_fund(now, over_block);
                         return T::MaximumBlockWeight::get();
                     }
                 }
@@ -98,21 +104,24 @@ decl_module! {
 }
 
 impl<T: Trait> Module<T> {
-    fn unlock_fund(is_last: bool) {
+    pub fn unlock_fund(now: T::BlockNumber, over_block: T::BlockNumber) {
         for item in Foundation::<T>::iter() {
             // (account, balance)
             let account = item.0;
-            let all_reserve_balance: BalanceOf<T> = Self::foundation(&account);
+            let all_reserve_balance = Self::foundation(&account);
             let unlock_ratio_each_period = T::UnlockRatioEachPeriod::get();
 
             // to be free balance
             let to_free_balance = unlock_ratio_each_period.mul_floor(all_reserve_balance);
 
-            // if last block, free all reserved balance
-            if is_last {
+            // if is over block, free all reserved balance
+            if now == over_block {
                 // round up, get total unlock cycle
-                let unlock_total_times =
+                let mut unlock_total_times: BalanceOf<T> =
                     unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
+                if unlock_total_times > One::one() {
+                    unlock_total_times = unlock_total_times.saturating_sub(One::one());
+                }
                 let already_free_balance = to_free_balance.saturating_mul(unlock_total_times);
                 let last_to_free_balance = all_reserve_balance.saturating_sub(already_free_balance);
                 // unreserve

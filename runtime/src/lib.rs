@@ -387,13 +387,13 @@ construct_runtime!(
         Session: pallet_session::{Module, Call, Storage, Event, Config<T>},
         Aura: pallet_aura::{Module, Config<T>, Inherent},
         Grandpa: pallet_grandpa::{Module, Call, Storage, Config, Event},
-        Foundation: fuso_pallet_foundation::{Module, Call, Storage, Config<T>, Event<T>},
         Balances: pallet_balances::{Module, Call, Storage, Config<T>, Event<T>},
         TransactionPayment: pallet_transaction_payment::{Module, Storage},
         Sudo: pallet_sudo::{Module, Call, Config<T>, Storage, Event<T>},
         Receipts: fuso_pallet_receipts::{Module, Call, Storage, Event<T>},
         Token: fuso_pallet_token::{Module, Call, Storage, Event<T>},
         Elections: fuso_pallet_elections::{Module, Call, Storage, Event<T>},
+        Foundation: fuso_pallet_foundation::{Module, Call, Storage, Config<T>, Event<T>},
     }
 );
 
