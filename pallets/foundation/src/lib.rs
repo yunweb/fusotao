@@ -84,27 +84,33 @@ decl_module! {
             if now < T::UnlockDelay::get() {
                 0
             } else {
-                let unlock_delay: T::BlockNumber = T::UnlockDelay::get();
-                let unlock_period: T::BlockNumber = T::UnlockPeriod::get();
-                if (now.saturating_sub(unlock_delay) % unlock_period) == Zero::zero() {
-                    let unlock_ratio_each_period: Perbill = T::UnlockRatioEachPeriod::get();
-                    // round up, get total unlock cycle
-                    let unlock_total_times = unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
-                    let last_cycle_block = unlock_period.saturating_mul(unlock_total_times);
-                    let over_block = unlock_delay.saturating_add(last_cycle_block);
-                    if now <= over_block {
-                        Self::unlock_fund(now, over_block);
-                        return T::MaximumBlockWeight::get();
-                    }
-                }
-                0
+                Self::initialize(now)
             }
         }
     }
 }
 
 impl<T: Trait> Module<T> {
-    pub fn unlock_fund(now: T::BlockNumber, over_block: T::BlockNumber) {
+    fn initialize(now: T::BlockNumber) -> Weight {
+        let unlock_delay: T::BlockNumber = T::UnlockDelay::get();
+        let unlock_period: T::BlockNumber = T::UnlockPeriod::get();
+        if (now.saturating_sub(unlock_delay) % unlock_period) == Zero::zero() {
+            let unlock_ratio_each_period: Perbill = T::UnlockRatioEachPeriod::get();
+            let mut unlock_total_times: T::BlockNumber = unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
+            if unlock_total_times > One::one() {
+                unlock_total_times = unlock_total_times.saturating_sub(One::one());
+            }
+            let last_cycle_block = unlock_period.saturating_mul(unlock_total_times);
+            let over_block = unlock_delay.saturating_add(last_cycle_block);
+            if now <= over_block {
+                Self::unlock_fund(now, over_block);
+                return T::MaximumBlockWeight::get();
+            }
+        }
+        0
+    }
+
+    fn unlock_fund(now: T::BlockNumber, over_block: T::BlockNumber) {
         for item in Foundation::<T>::iter() {
             // (account, balance)
             let account = item.0;
@@ -116,9 +122,7 @@ impl<T: Trait> Module<T> {
 
             // if is over block, free all reserved balance
             if now == over_block {
-                // round up, get total unlock cycle
-                let mut unlock_total_times: BalanceOf<T> =
-                    unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
+                let mut unlock_total_times: BalanceOf<T> = unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
                 if unlock_total_times > One::one() {
                     unlock_total_times = unlock_total_times.saturating_sub(One::one());
                 }
