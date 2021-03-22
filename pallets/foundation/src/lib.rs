@@ -96,7 +96,8 @@ impl<T: Trait> Module<T> {
         let unlock_period: T::BlockNumber = T::UnlockPeriod::get();
         if (now.saturating_sub(unlock_delay) % unlock_period) == Zero::zero() {
             let unlock_ratio_each_period: Perbill = T::UnlockRatioEachPeriod::get();
-            let mut unlock_total_times: T::BlockNumber = unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
+            let mut unlock_total_times: T::BlockNumber =
+                unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
             if unlock_total_times >= One::one() {
                 unlock_total_times = unlock_total_times.saturating_sub(One::one());
             }
@@ -122,7 +123,8 @@ impl<T: Trait> Module<T> {
 
             // if is over block, free all reserved balance
             if now == over_block {
-                let mut unlock_total_times: BalanceOf<T> = unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
+                let mut unlock_total_times: BalanceOf<T> =
+                    unlock_ratio_each_period.saturating_reciprocal_mul_ceil(One::one());
                 if unlock_total_times >= One::one() {
                     unlock_total_times = unlock_total_times.saturating_sub(One::one());
                 }

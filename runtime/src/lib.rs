@@ -373,6 +373,25 @@ impl pallet_authorship::Trait for Runtime {
     type EventHandler = ();
 }
 
+parameter_types! {
+    pub const VitalityBlock: u32 = 21;
+    pub const TermDuration: BlockNumber = 50 * 93 * DAYS;
+    pub const VoteDuration: BlockNumber = 14 * DAYS;
+    pub const MinimumVitalityWeight: Weight = 7 * WEIGHT_PER_SECOND; // 7_000_000_000_000 Weight
+    pub VoteBalancePerbill: Perbill = Perbill::from_rational_approximation(2u32, 3u32); // 2/3
+}
+
+impl fuso_pallet_samsara::Trait for Runtime {
+    type Event = Event;
+    type VitalityBlock = VitalityBlock;
+    type TermDuration = TermDuration;
+    type VoteDuration = VoteDuration;
+    type MinimumVitalityWeight = MinimumVitalityWeight;
+    type VoteBalancePerbill = VoteBalancePerbill;
+    type Currency = Balances;
+    type Locks = Runtime;
+}
+
 construct_runtime!(
     pub enum Runtime where
         Block = Block,
@@ -394,6 +413,7 @@ construct_runtime!(
         Token: fuso_pallet_token::{Module, Call, Storage, Event<T>},
         Elections: fuso_pallet_elections::{Module, Call, Storage, Event<T>},
         Foundation: fuso_pallet_foundation::{Module, Call, Storage, Config<T>, Event<T>},
+        Samsara: fuso_pallet_samsara::{Module, Call, Storage, Event<T>},
     }
 );
 

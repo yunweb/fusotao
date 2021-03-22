@@ -35,6 +35,7 @@ fuso-pallet-token = { path = '../pallets/token', default-features = false, versi
 fuso-pallet-council = { path = '../pallets/council', default-features = false, version = '0.1.0' }
 fuso-pallet-foundation = { path = '../pallets/foundation', default-features = false, version = '0.1.0' }
 fuso-pallet-reward = { path = '../pallets/reward', default-features = false, version = '0.1.0' }
+fuso-pallet-samsara = { path = '../pallets/samsara', default-features = false, version = '0.1.0' }
 pallet-aura = { default-features = false, version = '2.0.1' }
 pallet-session = { version = "2.0.1", default-features = false }
 pallet-balances = { default-features = false, version = '2.0.1' }
@@ -82,6 +83,7 @@ std = [
     'fuso-pallet-foundation/std',
     'fuso-pallet-council/std',
     'fuso-pallet-reward/std',
+    'fuso-pallet-samsara/std',
     'pallet-aura/std',
     'pallet-balances/std',
     'pallet-grandpa/std',

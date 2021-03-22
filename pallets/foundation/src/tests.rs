@@ -28,11 +28,7 @@ fn test_foundation_storage() -> DispatchResult {
         assert_eq!(bob_reserve_balance, 51000000000);
 
         // assert have two map storage
-        let fund = <FoundationModule as crate::Store>::Foundation::iter();
-        let mut len = 0;
-        for _i in fund {
-            len = len + 1;
-        }
+        let len = <FoundationModule as crate::Store>::Foundation::iter().count();
         assert_eq!(len, 2);
         Ok(())
     })?;
@@ -60,7 +56,6 @@ fn test_delay_not_unlock() -> DispatchResult {
 
     Ok(())
 }
-
 
 #[test]
 fn test_first_unlock() -> DispatchResult {
@@ -177,7 +172,7 @@ fn other_reason_to_reserve_balance() -> DispatchResult {
         assert_eq!(Balances::reserved_balance(&BOB), 36516182346);
 
         run_to_block(19996);
-        // last cycle to free all fund balance, buy other reason balance reserved
+        // last cycle to free all fund balance, but other reason balance reserved
         assert_eq!(Balances::reserved_balance(&ALICE), 2000);
         assert_eq!(Balances::reserved_balance(&BOB), 182346);
 

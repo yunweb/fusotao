@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::*;
 use crate::{Module, Trait};
-use frame_support::traits::{OnFinalize, OnInitialize, ReservableCurrency};
+use frame_support::traits::{OnFinalize, OnInitialize};
 use frame_support::{
-    dispatch::DispatchResult, impl_outer_origin, parameter_types, weights::Weight,
+    impl_outer_origin, parameter_types,
+    weights::{constants::WEIGHT_PER_SECOND, Weight},
 };
 use frame_system as system;
 use pallet_balances as balances;
@@ -29,10 +29,6 @@ use sp_runtime::{
 
 pub const ALICE: <Test as system::Trait>::AccountId = 1;
 pub const BOB: <Test as system::Trait>::AccountId = 2;
-pub const CHRIS: <Test as system::Trait>::AccountId = 3;
-#[allow(dead_code)]
-pub const DAVE: <Test as system::Trait>::AccountId = 4;
-pub const TEAM: <Test as system::Trait>::AccountId = 5;
 
 impl_outer_origin! {
     pub enum Origin for Test {}
@@ -53,9 +49,11 @@ parameter_types! {
     pub const TransferFee: u128 = 0;
     pub const CreationFee: u128 = 0;
 
-    pub const UnlockDelay: u32 = 10;
-    pub const UnlockPeriod: u32 = 20;
-    pub const UnlockRatioEachPeriod: Perbill = Perbill::from_perthousand(1);
+    pub const VitalityBlock: u32 = 21;
+    pub const TermDuration: u32 = 100;
+    pub const VoteDuration: u32 = 60;
+    pub const MinimumVitalityWeight: Weight = 7 * WEIGHT_PER_SECOND; // 7_000_000_000_000 Weight
+    pub VoteBalancePerbill: Perbill = Perbill::from_rational_approximation(2u32, 3u32); // 2/3
 }
 
 impl system::Trait for Test {
@@ -98,55 +96,39 @@ impl balances::Trait for Test {
 
 impl Trait for Test {
     type Event = ();
-    type UnlockDelay = UnlockDelay;
-    type UnlockPeriod = UnlockPeriod;
-    type UnlockRatioEachPeriod = UnlockRatioEachPeriod;
+    type VitalityBlock = VitalityBlock;
+    type TermDuration = TermDuration;
+    type VoteDuration = VoteDuration;
+    type MinimumVitalityWeight = MinimumVitalityWeight;
+    type VoteBalancePerbill = VoteBalancePerbill;
     type Currency = balances::Module<Self>;
+    type Locks = Test;
 }
 
-pub type FoundationModule = Module<Test>;
+pub type SamsaraModule = Module<Test>;
 pub type System = frame_system::Module<Test>;
 pub type Balances = pallet_balances::Module<Test>;
 
-pub fn init_reserve_balance() -> DispatchResult {
-    let fund = <FoundationModule as crate::Store>::Foundation::iter();
-    for i in fund {
-        Balances::reserve(&i.0, i.1)?
-    }
-    Ok(())
-}
-
 pub fn run_to_block(block: u64) {
     while System::block_number() < block {
-        FoundationModule::on_finalize(System::block_number());
+        SamsaraModule::on_finalize(System::block_number());
         System::on_finalize(System::block_number());
         System::set_block_number(System::block_number() + 1);
         System::on_initialize(System::block_number());
-        FoundationModule::on_initialize(System::block_number());
+        System::set_block_limits(5_290_048_000, 1);
+        SamsaraModule::on_initialize(System::block_number());
     }
 }
 
 // Build genesis storage according to the mock runtime.
-pub fn foundation_test_ext() -> sp_io::TestExternalities {
+pub fn samsara_test_ext() -> sp_io::TestExternalities {
     let mut t = system::GenesisConfig::default()
         .build_storage::<Test>()
         .unwrap()
         .into();
 
     balances::GenesisConfig::<Test> {
-        balances: vec![
-            (ALICE, 60000000000),
-            (BOB, 610000000000),
-            (CHRIS, 52000000000),
-            (DAVE, 530000000000),
-            (TEAM, 540000000000),
-        ],
-    }
-    .assimilate_storage(&mut t)
-    .unwrap();
-
-    crate::GenesisConfig::<Test> {
-        fund: vec![(ALICE, 50000000000), (BOB, 51000000000)],
+        balances: vec![(ALICE, 60000000000), (BOB, 610000000000)],
     }
     .assimilate_storage(&mut t)
     .unwrap();
