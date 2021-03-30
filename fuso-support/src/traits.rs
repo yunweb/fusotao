@@ -12,13 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use codec::{Codec, FullCodec};
+use codec::FullCodec;
 use frame_support::{traits::BalanceStatus, Parameter};
-use sp_runtime::traits::{
-    self, AtLeast32Bit, AtLeast32BitUnsigned, Bounded, CheckEqual, CheckedAdd, CheckedSub,
-    Dispatchable, Hash, MaybeDisplay, MaybeMallocSizeOf, MaybeSerialize, MaybeSerializeDeserialize,
-    Member, One, SimpleBitOps, StaticLookup, Zero,
-};
+use sp_runtime::traits::{AtLeast32BitUnsigned, MaybeDisplay, MaybeSerializeDeserialize, Member};
 use sp_runtime::DispatchResult;
 use sp_std::{collections::btree_set::BTreeSet, fmt::Debug};
 

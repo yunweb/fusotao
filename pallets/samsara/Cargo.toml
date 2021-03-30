@@ -20,6 +20,7 @@ sp-core = { version = "2.0.1", default-features = false }
 sp-io = { version = "2.0.1", default-features = false }
 sp-runtime = { version = "2.0.1", default-features = false }
 sp-std = { version = "2.0.1", default-features = false }
+pallet-balances = { version = "2.0.1", default-features = false }
 fuso-support = {version = "0.1.0", path = "../../fuso-support", default-features = false }
 
 [features]
@@ -33,4 +34,5 @@ std = [
 	"sp-io/std",
 	"sp-runtime/std",
 	"sp-std/std",
+	"pallet-balances/std"
 ]
