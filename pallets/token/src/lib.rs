@@ -21,13 +21,11 @@ use frame_support::{decl_error, decl_event, decl_module, decl_storage, ensure, P
 use frame_system::ensure_signed;
 use fuso_support::traits::ReservableToken;
 use sp_runtime::traits::{
-    AtLeast32BitUnsigned, CheckEqual, CheckedAdd, CheckedSub, Hash, MaybeDisplay,
-    MaybeMallocSizeOf, MaybeSerializeDeserialize, Member, SimpleBitOps, StaticLookup, Zero,
+    AtLeast32BitUnsigned, CheckedAdd, CheckedSub, MaybeSerializeDeserialize, Member, One,
+    StaticLookup, Zero,
 };
 use sp_runtime::DispatchResult;
 use sp_std::{fmt::Debug, vec::Vec};
-
-type TokenSequence = u32;
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, Default, Debug)]
 pub struct TokenAccountData<Balance> {
@@ -53,23 +51,14 @@ pub trait Trait: frame_system::Trait {
         + Debug
         + MaybeSerializeDeserialize;
 
-    type TokenId: Parameter
-        + Member
-        + MaybeSerializeDeserialize
-        + MaybeDisplay
-        + SimpleBitOps
-        + Ord
-        + sp_std::hash::Hash
+    type TokenId: Member
+        + Parameter
+        + AtLeast32BitUnsigned
         + Default
         + Copy
         + Codec
-        + CheckEqual
         + Debug
-        + MaybeMallocSizeOf
-        + AsRef<[u8]>
-        + AsMut<[u8]>;
-
-    type Hashing: Hash<Output = <Self as Trait>::TokenId>;
+        + MaybeSerializeDeserialize;
 }
 
 decl_event! {
@@ -108,7 +97,7 @@ decl_storage! {
         Tokens get(fn get_token_info): map hasher(twox_64_concat)
             T::TokenId => TokenInfo<T::Balance>;
 
-        NextTokenId get(fn next_token_id): TokenSequence = 0;
+        NextTokenId get(fn next_token_id): T::TokenId = Zero::zero();
     }
 }
 
@@ -127,17 +116,17 @@ decl_module! {
             let name = name.unwrap();
             ensure!(name.len() >= 2 && name.len() <= 5, Error::<T>::InvalidTokenName);
             let id = Self::next_token_id();
-            <NextTokenId>::mutate(|id| *id += 1);
-            let token_address = <T as Trait>::Hashing::hash(&id.to_ne_bytes());
-            <Balances<T>>::insert((token_address, &origin), TokenAccountData {
+            NextTokenId::<T>::mutate(|id| *id += One::one());
+            // let token_address = <T as Trait>::Hashing::hash(&id.to_ne_bytes());
+            Balances::<T>::insert((id, &origin), TokenAccountData {
                 free: total,
                 reserved: Zero::zero(),
             });
-            <Tokens<T>>::insert(token_address, TokenInfo {
+            Tokens::<T>::insert(id, TokenInfo {
                 total: total,
                 symbol: symbol,
             });
-            Self::deposit_event(RawEvent::TokenIssued(token_address, origin, total));
+            Self::deposit_event(RawEvent::TokenIssued(id, origin, total));
         }
 
         #[weight = 0]
@@ -372,9 +361,7 @@ mod tests {
 
         type Balance = u128;
 
-        type TokenId = Self::Hash;
-
-        type Hashing = <Self as frame_system::Trait>::Hashing;
+        type TokenId = u32;
     }
     type Token = Module<Test>;
 
@@ -393,7 +380,7 @@ mod tests {
                 1000000,
                 br#"USDT"#.to_vec()
             ));
-            let id = <Test as Trait>::Hashing::hash(&0u32.to_ne_bytes());
+            let id = 0u32;
             assert_eq!(
                 Token::get_token_info(&id),
                 TokenInfo {
@@ -434,7 +421,8 @@ mod tests {
                 1000000,
                 br#"USDT"#.to_vec()
             ));
-            let id = <Test as Trait>::Hashing::hash(&0u32.to_ne_bytes());
+            // let id = <Test as Trait>::Hashing::hash(&0u32.to_ne_bytes());
+            let id = 0u32;
             assert_eq!(Token::can_reserve(&id, &1, 1000000), true);
             assert_ok!(Token::reserve(&id, &1, 500000));
             assert_eq!(Token::can_reserve(&id, &1, 1000000), false);
@@ -446,7 +434,7 @@ mod tests {
                 }
             );
             assert_noop!(
-                Token::transfer(Origin::signed(1), id.clone(), 2, 1000000),
+                Token::transfer(Origin::signed(1), id, 2, 1000000),
                 Error::<Test>::InsufficientBalance
             );
             assert_eq!(

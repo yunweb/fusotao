@@ -14,22 +14,22 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![recursion_limit = "256"]
-use codec::{Decode, Encode};
+use codec::{Codec, Decode, Encode};
 use frame_support::{
     decl_error, decl_event, decl_module, decl_storage, ensure,
-    traits::{BalanceStatus, Currency, ReservableCurrency},
+    traits::{BalanceStatus, Currency, LockableCurrency, ReservableCurrency},
     Parameter,
 };
 use frame_system::ensure_signed;
-use fuso_support::traits::ReservableToken;
+use fuso_support::{external_chain::*, traits::ReservableToken};
 use sp_runtime::{
     traits::{
-        CheckEqual, CheckedAdd, CheckedSub, MaybeDisplay, MaybeMallocSizeOf,
+        AtLeast32BitUnsigned, CheckEqual, CheckedAdd, CheckedSub, MaybeDisplay, MaybeMallocSizeOf,
         MaybeSerializeDeserialize, Member, Saturating, SimpleBitOps, StaticLookup, Zero,
     },
-    RuntimeDebug,
+    DispatchResult, RuntimeDebug,
 };
-use sp_std::prelude::*;
+use sp_std::{convert::TryInto, fmt::Debug, prelude::*, vec::Vec};
 
 pub type BalanceOf<T> =
     <<T as Trait>::Currency as Currency<<T as frame_system::Trait>::AccountId>>::Balance;
@@ -45,29 +45,92 @@ pub type PositiveImbalanceOf<T> =
 pub type NegativeImbalanceOf<T> =
     <<T as Trait>::Currency as Currency<<T as frame_system::Trait>::AccountId>>::NegativeImbalance;
 
-pub type Pair<T> = (
+pub type HostingPair<T> = (
     <T as frame_system::Trait>::AccountId,
     <T as frame_system::Trait>::AccountId,
 );
 
+pub type UID = u128;
+
+pub type Balance = u128;
+
 #[derive(PartialEq, Eq, Clone, Encode, Decode, RuntimeDebug)]
-pub struct Receipt<TokenId, Balance> {
-    pub value: Balance,
-    pub assets_type: Option<TokenId>,
-    pub status: ReceiptStatus,
+pub enum Receipt<TokenId, BlockNumber> {
+    Tao(Balance, ReceiptStatus<BlockNumber>),
+    Token(TokenId, Balance, ReceiptStatus<BlockNumber>),
+}
+
+impl<X: Eq + PartialEq, Y> Receipt<X, Y> {
+    fn is_active(&self) -> bool {
+        match self {
+            Self::Tao(_, status) => matches!(status, ReceiptStatus::Active),
+            Self::Token(_, _, status) => matches!(status, ReceiptStatus::Active),
+        }
+    }
+    fn is_revoking(&self) -> bool {
+        match self {
+            Self::Tao(_, status) => matches!(status, ReceiptStatus::Revoking(_)),
+            Self::Token(_, _, status) => matches!(status, ReceiptStatus::Revoking(_)),
+        }
+    }
+
+    fn get_value(&self) -> Balance {
+        match self {
+            Self::Tao(v, _) => *v,
+            Self::Token(_, v, _) => *v,
+        }
+    }
+
+    fn is_token_of(&self, token_id: &X) -> bool {
+        match self {
+            Self::Tao(_, _) => false,
+            Self::Token(id, _, _) => id == token_id,
+        }
+    }
+
+    fn is_same_assets(&self, other: &Self) -> bool {
+        match self {
+            Self::Tao(_, _) => matches!(other, Self::Tao(_, _)),
+            Self::Token(id, _, _) => other.is_token_of(id),
+        }
+    }
+}
+
+impl<X: Eq + PartialEq, Y> Saturating for Receipt<X, Y> {
+    fn saturating_add(self, other: Self) -> Self {
+        let new = self.get_value().saturating_add(other.get_value());
+        match self {
+            Self::Tao(_, status) => Self::Tao(new, status),
+            Self::Token(id, _, status) => Self::Token(id, new, status),
+        }
+    }
+
+    fn saturating_sub(self, other: Self) -> Self {
+        let new = self.get_value().saturating_sub(other.get_value());
+        match self {
+            Self::Tao(_, status) => Self::Tao(new, status),
+            Self::Token(id, _, status) => Self::Token(id, new, status),
+        }
+    }
+
+    fn saturating_mul(self, _: Self) -> Self {
+        unimplemented!();
+    }
+
+    fn saturating_pow(self, _: usize) -> Self {
+        unimplemented!();
+    }
 }
 
 #[derive(PartialEq, Eq, Copy, Clone, Encode, Decode, RuntimeDebug)]
-pub enum ReceiptStatus {
+pub enum ReceiptStatus<BlockNumber> {
     Active,
-    Revoking,
+    Revoking(BlockNumber),
 }
 
 #[derive(PartialEq, Eq, Clone, Encode, Decode, RuntimeDebug)]
-pub struct Dominator<TokenId, Balance> {
-    pub assets_type: Option<TokenId>,
-    pub total_pledged: Balance,
-    pub total_hosted: Balance,
+pub struct Dominator {
+    pub pledged: Balance,
     pub status: DominatorStatus,
 }
 
@@ -81,43 +144,31 @@ pub enum DominatorStatus {
 pub trait Trait: frame_system::Trait {
     type Event: From<Event<Self>> + Into<<Self as frame_system::Trait>::Event>;
 
-    type Currency: ReservableCurrency<Self::AccountId>;
+    type Currency: ReservableCurrency<Self::AccountId> + LockableCurrency<Self::AccountId>;
 
     type TokenId: Parameter
         + Member
         + MaybeSerializeDeserialize
         + MaybeDisplay
         + SimpleBitOps
+        + Codec
+        + Eq
         + Ord
         + Default
-        + Copy
-        + CheckEqual
-        + MaybeMallocSizeOf;
+        + Copy;
 
     type Token: ReservableToken<Self::TokenId, Self::AccountId>;
 }
 
-pub type UID = u128;
-
 decl_storage! {
     trait Store for Module<T: Trait> as Receipts {
         Receipts get(fn receipts): map
-            hasher(blake2_128_concat) Pair<T>
-        => Option<Receipt<(), BalanceOf<T>>>;
-
-        TokenReceipts get(fn token_receipts): double_map
-            hasher(blake2_128_concat) T::TokenId,
-            hasher(blake2_128_concat) Pair<T>
-        => Option<Receipt<T::TokenId, TokenBalanceOf<T>>>;
+            hasher(blake2_128_concat) HostingPair<T>
+        => Vec<Receipt<T::TokenId, T::BlockNumber>>;
 
         Dominators get(fn dominators): map
             hasher(blake2_128_concat) T::AccountId
-        => Option<Dominator<(), BalanceOf<T>>>;
-
-        TokenDominators get(fn token_dominators): double_map
-            hasher(blake2_128_concat) T::TokenId,
-            hasher(blake2_128_concat) T::AccountId
-        => Option<Dominator<T::TokenId, TokenBalanceOf<T>>>;
+        => Option<Dominator>;
     }
 }
 
@@ -126,26 +177,26 @@ decl_event!(
     where
         AccountId = <T as frame_system::Trait>::AccountId,
         TokenId = <T as Trait>::TokenId,
-        Balance = BalanceOf<T>,
-        TokenBalance = TokenBalanceOf<T>,
+        Balance = Balance,
     {
         DominatorClaimed(AccountId, Balance),
-        TokenDominatorClaimed(TokenId, AccountId, TokenBalance),
-        AssetsHosted(AccountId, AccountId, Balance),
-        TokenHosted(TokenId, AccountId, AccountId, TokenBalance),
-        HostAssetsChanged(AccountId, AccountId, Balance),
-        HostTokenChanged(TokenId, AccountId, AccountId, TokenBalance),
-        AssetsRevokeSubmitted(AccountId, AccountId),
-        TokenRevokeSubmitted(TokenId, AccountId, AccountId),
-        AssetsRevokeConfirmed(AccountId, AccountId),
-        TokenRevokeConfirmed(TokenId, AccountId, AccountId),
+        TaoHosted(AccountId, AccountId, Balance, UID),
+        TokenHosted(AccountId, AccountId, TokenId, Balance, UID),
+        AssetsClear(
+            AccountId,
+            AccountId,
+            Option<Balance>,
+            Vec<(TokenId, Balance)>,
+        ),
     }
 );
 
 decl_error! {
     pub enum Error for Module<T: Trait> {
         DominatorNotFound,
+        IllegalParameters,
         ReceiptNotExists,
+        ChainNotSupport,
         ReceiptAlreadyExists,
         DominatorAlreadyExists,
         DominatorBanned,
@@ -163,265 +214,225 @@ decl_module! {
 
         fn deposit_event() = default;
 
-        #[weight = 100]
-        pub fn grant(origin,
-                     dominator: <T::Lookup as StaticLookup>::Source,
-                     #[compact] amount: BalanceOf<T>,
-                     memo: UID) {
-            let fund_owner = ensure_signed(origin)?;
-            let dominator = T::Lookup::lookup(dominator)?;
-            let claimed = Dominators::<T>::get(&dominator).ok_or(Error::<T>::DominatorNotFound)?;
-            ensure!(claimed.status == DominatorStatus::Active, Error::<T>::InvalidStatus);
-            ensure!(!Receipts::<T>::contains_key((&fund_owner, &dominator)), Error::<T>::ReceiptAlreadyExists);
-            // FIXME what does saturating_add mean
-            ensure!(claimed.total_hosted.saturating_add(amount) <= claimed.total_pledged, Error::<T>::PledgeUnsatisfied);
-            ensure!(T::Currency::can_reserve(&fund_owner, amount), Error::<T>::InsufficientBalance);
-            T::Currency::reserve(&fund_owner, amount)?;
-            Receipts::<T>::insert((&fund_owner, &dominator), Receipt {
-                value: amount,
-                status: ReceiptStatus::Active,
-                assets_type: None,
-            });
-            // FIXME what does saturating_add mean
-
-            Dominators::<T>::insert(&dominator, Dominator {
-                total_pledged: claimed.total_pledged,
-                total_hosted: claimed.total_hosted.saturating_add(amount),
-                status: DominatorStatus::Active,
-                assets_type: None,
-            });
-            Self::deposit_event(RawEvent::AssetsHosted(fund_owner, dominator, amount));
-        }
-
-        #[weight = 100]
-        pub fn grant_token(origin,
-                     token: T::TokenId,
-                     dominator: <T::Lookup as StaticLookup>::Source,
-                     #[compact] amount: TokenBalanceOf<T>,
-                     memo: UID) {
-            let fund_owner = ensure_signed(origin)?;
-            let dominator = T::Lookup::lookup(dominator)?;
-            let claimed = TokenDominators::<T>::get(&token, &dominator).ok_or(Error::<T>::DominatorNotFound)?;
-            ensure!(claimed.status == DominatorStatus::Active, Error::<T>::InvalidStatus);
-            ensure!(!TokenReceipts::<T>::contains_key(&token, (&fund_owner, &dominator)), Error::<T>::ReceiptAlreadyExists);
-            // FIXME what does saturating_add mean
-
-            ensure!(claimed.total_hosted.saturating_add(amount) <= claimed.total_pledged, Error::<T>::PledgeUnsatisfied);
-            ensure!(T::Token::can_reserve(&token, &fund_owner, amount), Error::<T>::InsufficientBalance);
-            T::Token::reserve(&token, &fund_owner, amount)?;
-            TokenReceipts::<T>::insert(&token, (&fund_owner, &dominator), Receipt {
-                value: amount,
-                status: ReceiptStatus::Active,
-                assets_type: Some(token),
-            });
-            // FIXME what does saturating_add mean
-
-            TokenDominators::<T>::insert(&token, &dominator, Dominator {
-                total_pledged: claimed.total_pledged,
-                total_hosted: claimed.total_hosted.saturating_add(amount),
-                status: DominatorStatus::Active,
-                assets_type: Some(token),
-            });
-            Self::deposit_event(RawEvent::TokenHosted(token, fund_owner, dominator, amount));
-        }
-
-        #[weight = 100]
-        pub fn revoke(origin, dominator: <T::Lookup as StaticLookup>::Source) {
-            let fund_owner = ensure_signed(origin)?;
-            let dominator = T::Lookup::lookup(dominator)?;
-            let receipt = Receipts::<T>::get((&fund_owner, &dominator)).ok_or(Error::<T>::ReceiptNotExists)?;
-            ensure!(receipt.status == ReceiptStatus::Active, Error::<T>::InvalidStatus);
-            Receipts::<T>::insert((&fund_owner, &dominator), Receipt {
-                value: receipt.value,
-                status: ReceiptStatus::Revoking,
-                assets_type: None,
-            });
-            Self::deposit_event(RawEvent::AssetsRevokeSubmitted(fund_owner, dominator));
-        }
-
-        #[weight = 100]
-        pub fn revoke_token(origin, token: T::TokenId, dominator: <T::Lookup as StaticLookup>::Source) {
-            let fund_owner = ensure_signed(origin)?;
-            let dominator = T::Lookup::lookup(dominator)?;
-            let receipt = TokenReceipts::<T>::get(&token, (&fund_owner, &dominator)).ok_or(Error::<T>::ReceiptNotExists)?;
-            ensure!(receipt.status == ReceiptStatus::Active, Error::<T>::InvalidStatus);
-            TokenReceipts::<T>::insert(token, (&fund_owner, &dominator), Receipt {
-                value: receipt.value,
-                status: ReceiptStatus::Revoking,
-                assets_type: Some(token),
-            });
-            Self::deposit_event(RawEvent::TokenRevokeSubmitted(token, fund_owner, dominator));
-        }
-
-        /// signed by the dominator, not fund owner
-        #[weight = 100]
-        pub fn merge_to_deduct_stash(origin,
-                                     fund_owner: T::AccountId,
-                                     #[compact] amount: BalanceOf<T>,
-                                     digest: Vec<u8>) {
-            let dominator = ensure_signed(origin)?;
-            let claimed = Dominators::<T>::get(&dominator).ok_or(Error::<T>::DominatorNotFound)?;
-            ensure!(claimed.total_hosted >= amount, Error::<T>::InsufficientStashAccount);
-            let receipt = Receipts::<T>::get((&fund_owner, &dominator)).ok_or(Error::<T>::ReceiptNotExists)?;
-            ensure!(receipt.value >= amount, Error::<T>::InsufficientStashAccount);
-            ensure!(T::Currency::reserved_balance(&fund_owner) >= amount, Error::<T>::InsufficientStashAccount);
-            T::Currency::repatriate_reserved(&fund_owner, &dominator, amount, BalanceStatus::Free)?;
-            // FIXME what does saturating_add mean
-
-            Dominators::<T>::insert(&dominator, Dominator {
-                total_hosted: claimed.total_hosted.saturating_sub(amount),
-                total_pledged: claimed.total_pledged,
-                status: claimed.status,
-                assets_type: None,
-            });
-            if receipt.value == amount {
-                Receipts::<T>::remove((&fund_owner, &dominator));
-            } else {
-                Receipts::<T>::insert((&fund_owner, &dominator), Receipt {
-                    value: receipt.value.saturating_sub(amount),
-                    status: receipt.status,
-                    assets_type: None,
-                });
-            }
-        }
-
-        #[weight = 100]
-        pub fn merge_to_deduct_stash_token(origin,
-                                           token: T::TokenId,
-                                           fund_owner: T::AccountId,
-                                           #[compact] amount: TokenBalanceOf<T>,
-                                           digest: Vec<u8>) {
-            let dominator = ensure_signed(origin)?;
-            let claimed = TokenDominators::<T>::get(&token, &dominator).ok_or(Error::<T>::DominatorNotFound)?;
-            ensure!(claimed.total_hosted >= amount, Error::<T>::InsufficientStashAccount);
-            let receipt = TokenReceipts::<T>::get(&token, (&fund_owner, &dominator)).ok_or(Error::<T>::ReceiptNotExists)?;
-            ensure!(receipt.value >= amount, Error::<T>::InsufficientStashAccount);
-            ensure!(T::Token::reserved_balance(&token, &fund_owner) >= amount, Error::<T>::InsufficientStashAccount);
-            T::Token::repatriate_reserved(&token, &fund_owner, &dominator, amount, BalanceStatus::Free)?;
-            TokenDominators::<T>::insert(&token, &dominator, Dominator {
-                total_hosted: claimed.total_hosted.saturating_sub(amount),
-                total_pledged: claimed.total_pledged,
-                status: claimed.status,
-                assets_type: Some(token),
-            });
-            if receipt.value == amount {
-                TokenReceipts::<T>::remove(&token, (&fund_owner, &dominator));
-            } else {
-                TokenReceipts::<T>::insert(&token, (&fund_owner, &dominator), Receipt {
-                    value: receipt.value.saturating_sub(amount),
-                    status: receipt.status,
-                    assets_type: Some(token),
-                });
-            }
-        }
-
-        /// signed by the dominator, not fund owner
-        #[weight = 100]
-        pub fn merge_to_add_stash(origin, fund_owner: T::AccountId, #[compact] amount: BalanceOf<T>, digest: Vec<u8>) {
-            let dominator = ensure_signed(origin)?;
-            let claimed = Dominators::<T>::get(&dominator).ok_or(Error::<T>::DominatorNotFound)?;
-            ensure!(claimed.total_pledged >= amount, Error::<T>::InsufficientStashAccount);
-            ensure!(T::Currency::reserved_balance(&dominator) >= amount, Error::<T>::InsufficientStashAccount);
-            T::Currency::repatriate_reserved(&dominator, &fund_owner, amount, BalanceStatus::Free)?;
-            Dominators::<T>::insert(&dominator, Dominator {
-                total_hosted: claimed.total_hosted,
-                total_pledged: claimed.total_pledged.saturating_sub(amount),
-                status: claimed.status,
-                assets_type: None,
-            });
-        }
-
-        #[weight = 100]
-        pub fn merge_to_add_stash_token(origin, token: T::TokenId, fund_owner: T::AccountId, #[compact] amount: TokenBalanceOf<T>, digest: Vec<u8>) {
-            let dominator = ensure_signed(origin)?;
-            let claimed = TokenDominators::<T>::get(&token, &dominator).ok_or(Error::<T>::DominatorNotFound)?;
-            ensure!(claimed.total_pledged >= amount, Error::<T>::InsufficientStashAccount);
-            ensure!(T::Token::reserved_balance(&token, &dominator) >= amount, Error::<T>::InsufficientStashAccount);
-            T::Token::repatriate_reserved(&token, &dominator, &fund_owner, amount, BalanceStatus::Free)?;
-            TokenDominators::<T>::insert(&token, &dominator, Dominator {
-                total_hosted: claimed.total_hosted,
-                total_pledged: claimed.total_pledged.saturating_sub(amount),
-                status: claimed.status,
-                assets_type: Some(token),
-            });
-        }
-
-        #[weight = 100]
-        pub fn confirm_withdraw(origin, fund_owner: T::AccountId) {
-            let dominator = ensure_signed(origin)?;
-            let claimed = Dominators::<T>::get(&dominator).ok_or(Error::<T>::DominatorNotFound)?;
-            let receipt = Receipts::<T>::get((&fund_owner, &dominator)).ok_or(Error::<T>::ReceiptNotExists)?;
-            ensure!(receipt.status == ReceiptStatus::Revoking, Error::<T>::InvalidStatus);
-            ensure!(T::Currency::reserved_balance(&fund_owner) >= receipt.value, Error::<T>::InvalidStatus);
-            T::Currency::unreserve(&fund_owner, receipt.value);
-            Dominators::<T>::insert(&dominator, Dominator {
-                total_pledged: claimed.total_pledged,
-                total_hosted: claimed.total_hosted.saturating_sub(receipt.value),
-                status: claimed.status,
-                assets_type: None,
-            });
-            Receipts::<T>::remove((&fund_owner, &dominator));
-            Self::deposit_event(RawEvent::AssetsRevokeConfirmed(fund_owner, dominator));
-        }
-
-        #[weight = 100]
-        pub fn confirm_token_withdraw(origin, token: T::TokenId, fund_owner: T::AccountId) {
-            let dominator = ensure_signed(origin)?;
-            let claimed = TokenDominators::<T>::get(&token, &dominator).ok_or(Error::<T>::DominatorNotFound)?;
-            let receipt = TokenReceipts::<T>::get(&token, (&fund_owner, &dominator)).ok_or(Error::<T>::ReceiptNotExists)?;
-            ensure!(receipt.status == ReceiptStatus::Revoking, Error::<T>::InvalidStatus);
-            ensure!(T::Token::reserved_balance(&token, &fund_owner) >= receipt.value, Error::<T>::InvalidStatus);
-            T::Token::unreserve(&token, &fund_owner, receipt.value)?;
-            TokenDominators::<T>::insert(&token, &dominator, Dominator {
-                total_pledged: claimed.total_pledged,
-                total_hosted: claimed.total_hosted.saturating_sub(receipt.value),
-                status: claimed.status,
-                assets_type: Some(token),
-            });
-            TokenReceipts::<T>::remove(&token, (&fund_owner, &dominator));
-            Self::deposit_event(RawEvent::TokenRevokeConfirmed(token, fund_owner, dominator));
-        }
-
-        #[weight = 100]
-        pub fn claim_dominator(origin, #[compact] amount: BalanceOf<T>) {
+        #[weight = 1_000_000]
+        pub fn claim_dominator(origin, #[compact] pledge: Balance) {
             let dominator = ensure_signed(origin)?;
             ensure!(!<Dominators<T>>::contains_key(&dominator), Error::<T>::DominatorAlreadyExists);
-            T::Currency::reserve(&dominator, amount)?;
+            let v: BalanceOf<T> = pledge.try_into().or(Err(Error::<T>::IllegalParameters))?;
+            // TODO lock
+            T::Currency::reserve(&dominator, v)?;
             <Dominators<T>>::insert(&dominator, Dominator {
-                total_pledged: amount,
-                total_hosted: Zero::zero(),
+                pledged: pledge,
                 status: DominatorStatus::Active,
-                assets_type: None,
             });
-            Self::deposit_event(RawEvent::DominatorClaimed(dominator, amount));
+            Self::deposit_event(RawEvent::DominatorClaimed(dominator, pledge));
         }
 
-        #[weight = 100]
-        pub fn claim_token_dominator(origin, token: T::TokenId, #[compact] amount: TokenBalanceOf<T>) {
+        #[weight = 100_000]
+        pub fn grant_tao(origin,
+                         dominator: <T::Lookup as StaticLookup>::Source,
+                         amount: Balance,
+                         memo: UID) {
+            let fund_owner = ensure_signed(origin)?;
+            let dominator = T::Lookup::lookup(dominator)?;
+            let claimed = Dominators::<T>::get(&dominator).ok_or(Error::<T>::DominatorNotFound)?;
+            ensure!(claimed.status == DominatorStatus::Active, Error::<T>::InvalidStatus);
+            let value: BalanceOf<T> = amount.try_into().or(Err(Error::<T>::IllegalParameters))?;
+            ensure!(T::Currency::can_reserve(&fund_owner, value), Error::<T>::InsufficientBalance);
+            Self::try_mutate_receipt(&fund_owner,
+                                     &dominator,
+                                     |r| matches!(r, Receipt::Tao(_, _)),
+                                     |exists| {
+                                         let taken = exists.take().unwrap_or(Receipt::Tao(Zero::zero(), ReceiptStatus::Active));
+                                         if !taken.is_active() {
+                                             return Err(Error::<T>::InvalidStatus);
+                                         }
+                                         exists.replace(Receipt::Tao(taken.get_value().saturating_add(amount), ReceiptStatus::Active));
+                                         Ok(())
+                                     })?;
+            T::Currency::reserve(&fund_owner, value)?;
+            T::Currency::repatriate_reserved(&fund_owner, &dominator, value, BalanceStatus::Reserved)?;
+            Self::deposit_event(RawEvent::TaoHosted(fund_owner, dominator, amount, memo));
+        }
+
+        #[weight = 100_000]
+        pub fn grant_token(origin,
+                           dominator: <T::Lookup as StaticLookup>::Source,
+                           token: T::TokenId,
+                           amount: Balance,
+                           memo: UID) {
+            let fund_owner = ensure_signed(origin)?;
+            let dominator = T::Lookup::lookup(dominator)?;
+            let claimed = Dominators::<T>::get(&dominator).ok_or(Error::<T>::DominatorNotFound)?;
+            ensure!(claimed.status == DominatorStatus::Active, Error::<T>::InvalidStatus);
+            let value: TokenBalanceOf<T> = amount.try_into().or(Err(Error::<T>::IllegalParameters))?;
+            ensure!(T::Token::can_reserve(&token, &fund_owner, value), Error::<T>::InsufficientBalance);
+            Self::try_mutate_receipt(&fund_owner,
+                                     &dominator,
+                                     |r| r.is_token_of(&token),
+                                     |exists| {
+                                         let taken = exists.take().unwrap_or(Receipt::Token(token, Zero::zero(), ReceiptStatus::Active));
+                                         if !taken.is_active() {
+                                             return Err(Error::<T>::InvalidStatus);
+                                         }
+                                         exists.replace(Receipt::Tao(taken.get_value().saturating_add(amount), ReceiptStatus::Active));
+                                         Ok(())
+                                     })?;
+            T::Token::reserve(&token, &fund_owner, value)?;
+            T::Token::repatriate_reserved(&token, &fund_owner, &dominator, value, BalanceStatus::Reserved)?;
+            Self::deposit_event(RawEvent::TokenHosted(fund_owner, dominator, token, amount, memo));
+        }
+
+        #[weight = 100_000]
+        pub fn sync(origin,
+                    fund_owner: <T::Lookup as StaticLookup>::Source,
+                    tao: Balance,
+                    tokens: Vec<(T::TokenId, Balance)>,
+                    digest: Vec<u8>) {
             let dominator = ensure_signed(origin)?;
-            ensure!(!<TokenDominators<T>>::contains_key(&token, &dominator), Error::<T>::DominatorAlreadyExists);
-            T::Token::reserve(&token, &dominator, amount)?;
-            <TokenDominators<T>>::insert(&token, &dominator, Dominator {
-                total_pledged: amount,
-                total_hosted: Zero::zero(),
-                status: DominatorStatus::Active,
-                assets_type: Some(token),
-            });
-            Self::deposit_event(RawEvent::TokenDominatorClaimed(token, dominator, amount));
+            let fund_owner = T::Lookup::lookup(fund_owner)?;
+            ensure!(Dominators::<T>::contains_key(&dominator), Error::<T>::DominatorNotFound);
+            Self::try_mutate_receipt(&fund_owner,
+                                     &dominator,
+                                     |r| matches!(r, Receipt::Tao(_, _)),
+                                     |exists_tao| {
+                                         match exists_tao.take() {
+                                             None => {},
+                                             Some(Receipt::Tao(0, _)) => {},
+                                             Some(Receipt::Token(_,_,_)) => {}
+                                             Some(Receipt::Tao(_, s)) => {
+                                                 exists_tao.replace(Receipt::Tao(tao, s));
+                                             }
+                                         }
+                                         Ok(())
+                                     })?;
+            for (token, value) in tokens {
+                Self::try_mutate_receipt(&fund_owner,
+                                         &dominator,
+                                         |r| r.is_token_of(&token),
+                                         |exists_token| {
+                                             match exists_token.take() {
+                                                 None => {}
+                                                 Some(Receipt::Token(_, 0, _)) => {}
+                                                 Some(Receipt::Tao(_, _)) => {}
+                                                 Some(Receipt::Token(t, _, s)) => {
+                                                     exists_token.replace(Receipt::Token(t, value, s));
+                                                 }
+                                             }
+                                             Ok(())
+                                         })?;
+            }
         }
 
-        // pub fn incr_pledge(origin) {
+        #[weight = 100_000]
+        pub fn withdraw(origin, dominator: <T::Lookup as StaticLookup>::Source) {
+            let fund_owner = ensure_signed(origin)?;
+            let dominator = T::Lookup::lookup(dominator)?;
+            ensure!(Dominators::<T>::contains_key(&dominator), Error::<T>::DominatorNotFound);
+            let t = frame_system::Module::<T>::block_number();
+            Self::try_mutate_receipt_exists(&fund_owner,
+                                            &dominator,
+                                            |r| matches!(r, Receipt::Tao(_, ReceiptStatus::Active)),
+                                            |exists| {
+                                                match exists.take() {
+                                                    None => {}
+                                                    Some(Receipt::Tao(0, _)) => {}
+                                                    Some(Receipt::Token(_, _, _)) => {}
+                                                    Some(Receipt::Tao(v, _)) => {
+                                                        exists.replace(Receipt::Tao(v, ReceiptStatus::Revoking(t)));
+                                                    }
+                                                }
+                                                Ok(())
+                                            })?;
+        }
 
-        // }
+        #[weight = 100_000]
+        pub fn withdraw_token(origin, dominator: <T::Lookup as StaticLookup>::Source, token_id: T::TokenId) {
+            let fund_owner = ensure_signed(origin)?;
+            let dominator = T::Lookup::lookup(dominator)?;
+            ensure!(Dominators::<T>::contains_key(&dominator), Error::<T>::DominatorNotFound);
+            let t = frame_system::Module::<T>::block_number();
+            Self::try_mutate_receipt_exists(&fund_owner,
+                                            &dominator,
+                                            |r| r.is_active() && r.is_token_of(&token_id),
+                                            |exists| {
+                                                match exists.take() {
+                                                    None => {}
+                                                    Some(Receipt::Token(_, 0, _)) => {}
+                                                    Some(Receipt::Tao(_, _)) => {}
+                                                    Some(Receipt::Token(id, v, _)) => {
+                                                        exists.replace(Receipt::Token(id, v, ReceiptStatus::Revoking(t)));
+                                                    }
+                                                }
+                                                Ok(())
+                                            })?;
+        }
 
-        #[weight = 100]
+        #[weight = 1000]
+        pub fn confirm(origin, fund_owner: <T::Lookup as StaticLookup>::Source) {
+            let dominator = ensure_signed(origin)?;
+
+        }
+
+        #[weight = 1000]
         pub fn quit_dominator(origin) {
             let dominator = ensure_signed(origin)?;
         }
 
-        #[weight = 100]
+        #[weight = 1000]
         pub fn slash(origin, dominator: <T::Lookup as StaticLookup>::Source) {
             // ensure_root(origin)?;
         }
+    }
+}
+
+type ReceiptOf<T> = Receipt<<T as Trait>::TokenId, <T as frame_system::Trait>::BlockNumber>;
+
+impl<T: Trait> Module<T> {
+    fn try_mutate_receipt(
+        owner: &T::AccountId,
+        dominator: &T::AccountId,
+        filter: impl Fn(&ReceiptOf<T>) -> bool,
+        mutator: impl FnOnce(&mut Option<ReceiptOf<T>>) -> Result<(), Error<T>>,
+    ) -> Result<(), Error<T>> {
+        Receipts::<T>::mutate_exists((&owner, &dominator), |old| -> Result<(), Error<T>> {
+            let mut vec = old.take().unwrap_or(vec![]);
+            let mut target = match vec.iter().position(|r| filter(r)) {
+                Some(i) => Some(vec.swap_remove(i)),
+                None => None,
+            };
+            mutator(&mut target)?;
+            match target {
+                Some(v) => vec.push(v),
+                None => {}
+            }
+            old.replace(vec);
+            Ok(())
+        })
+    }
+
+    fn try_mutate_receipt_exists(
+        owner: &T::AccountId,
+        dominator: &T::AccountId,
+        filter: impl Fn(&ReceiptOf<T>) -> bool,
+        mutator: impl FnOnce(&mut Option<ReceiptOf<T>>) -> Result<(), Error<T>>,
+    ) -> Result<(), Error<T>> {
+        Receipts::<T>::mutate_exists((&owner, &dominator), |old| -> Result<(), Error<T>> {
+            let mut vec = old.take().unwrap_or(vec![]);
+            let mut target = match vec.iter().position(|r| filter(r)) {
+                Some(i) => Some(vec.swap_remove(i)),
+                None => None,
+            };
+            if target.is_none() {
+                return Err(Error::<T>::ReceiptNotExists);
+            }
+            mutator(&mut target)?;
+            match target {
+                Some(v) => vec.push(v),
+                None => {}
+            }
+            old.replace(vec);
+            Ok(())
+        })
     }
 }
