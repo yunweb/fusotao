@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::external_chain::ExternalChainAddress;
 use codec::FullCodec;
 use frame_support::{traits::BalanceStatus, Parameter};
 use sp_runtime::traits::{AtLeast32BitUnsigned, MaybeDisplay, MaybeSerializeDeserialize, Member};
 use sp_runtime::DispatchResult;
-use sp_std::{collections::btree_set::BTreeSet, fmt::Debug};
-use crate::external_chain::ExternalChainAddress;
+use sp_std::fmt::Debug;
+use sp_std::vec::Vec;
 
 pub trait ReservableToken<TokenId, AccountId> {
     type Balance: AtLeast32BitUnsigned
@@ -48,10 +49,6 @@ pub trait ReservableToken<TokenId, AccountId> {
     ) -> DispatchResult;
 }
 
-pub trait Participants<AccountId> {
-    fn get_participants() -> BTreeSet<AccountId>;
-}
-
 pub trait ProofOfSecurity<AccountId> {
     type ExternalChainAddress: Parameter
         + Member
@@ -66,20 +63,17 @@ pub trait ProofOfSecurity<AccountId> {
     // TODO
 }
 
-pub trait Referendum<BlockNumber, Index> {
-    type Result: Clone;
+pub trait Referendum<BlockNumber, Index, Members> {
+    fn proposal(start_include: BlockNumber) -> Index;
 
-    fn proposal(start_include: BlockNumber, end_include: BlockNumber) -> Index;
+    fn get_round() -> Index;
 
-    fn is_end(index: Index) -> bool;
-
-    fn get_result(index: Index) -> Self::Result;
+    fn get_result(index: Index) -> Option<Members>;
 }
 
 pub type ExternalTransactionId = u64;
 
 pub trait Inspector<T: frame_system::Trait> {
-
     type ExternalChainBalance: AtLeast32BitUnsigned
         + FullCodec
         + Parameter
@@ -101,14 +95,14 @@ pub trait Inspector<T: frame_system::Trait> {
 
     fn expect_transaction(
         to: ExternalChainAddress,
-        memo: sp_std::vec::Vec<u8>,
+        memo: Vec<u8>,
         amount: Self::ExternalChainBalance,
     );
 
     fn approve(
         from: ExternalChainAddress,
         to: ExternalChainAddress,
-        memo: sp_std::vec::Vec<u8>,
+        memo: Vec<u8>,
         amount: Self::ExternalChainBalance,
         external_transaction_hash: Self::ExternalChainTxHash,
     );

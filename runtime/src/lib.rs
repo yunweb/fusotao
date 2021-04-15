@@ -260,17 +260,16 @@ impl pallet_balances::Trait for Runtime {
 }
 
 parameter_types! {
-    pub const CandidatePeriod: BlockNumber = 14 * DAYS;
+    pub const VotePeriod: BlockNumber = 14 * DAYS;
     pub const MinimumVotingLock: Balance = 1 * DOLLARS;
 }
 
 impl fuso_pallet_elections::Trait for Runtime {
     type Event = Event;
     type Currency = Balances;
-    type CandidatePeriod = CandidatePeriod;
+    type VotePeriod = VotePeriod;
     type MinimumVotingLock = MinimumVotingLock;
     type VoteIndex = u32;
-    type Locks = Runtime;
 }
 
 parameter_types! {
@@ -288,14 +287,19 @@ impl fuso_pallet_foundation::Trait for Runtime {
 }
 
 parameter_types! {
-    pub const CouncilTerm: u32 = 8;
-    pub const MaxMembers: u32 = 21;
+    pub const StartCouncil: BlockNumber = 10;
+    pub const CouncilTerm: BlockNumber = 93 * DAYS;
+    pub const MinValidators: u32 = 6;
+    pub const MaxValidators: u32 = 21;
 }
 
 impl fuso_pallet_council::Trait for Runtime {
     type Event = Event;
     type CouncilTerm = CouncilTerm;
-    type MaxMembers = MaxMembers;
+    type MinValidators = MinValidators;
+    type MaxValidators = MaxValidators;
+    type Elections = Elections;
+    type StartCouncil = StartCouncil;
 }
 
 impl pallet_session::Trait for Runtime {
@@ -304,7 +308,7 @@ impl pallet_session::Trait for Runtime {
     type ShouldEndSession = Council;
     type SessionManager = Council;
     type Keys = opaque::SessionKeys;
-    type NextSessionRotation = ();
+    type NextSessionRotation = Council;
     type ValidatorId = <Self as frame_system::Trait>::AccountId;
     type ValidatorIdOf = Council;
     type DisabledValidatorsThreshold = ();
@@ -403,7 +407,7 @@ construct_runtime!(
         Authorship: pallet_authorship::{Module, Call, Storage, Inherent},
         Council: fuso_pallet_council::{Module, Call, Storage, Event<T>, Config<T>},
         Session: pallet_session::{Module, Call, Storage, Event, Config<T>},
-        Aura: pallet_aura::{Module, Config<T>, Inherent},
+        Aura: pallet_aura::{Module, Call, Storage, Config<T>, Inherent},
         Grandpa: pallet_grandpa::{Module, Call, Storage, Config, Event},
         Balances: pallet_balances::{Module, Call, Storage, Config<T>, Event<T>},
         TransactionPayment: pallet_transaction_payment::{Module, Storage},

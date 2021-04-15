@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use frame_support::dispatch::DispatchResult;
-
 use crate::mock::*;
 use crate::*;
+use frame_support::assert_ok;
+use frame_support::dispatch::DispatchResult;
 
 // test foundation
 #[test]
-fn test_foundation_storage() -> DispatchResult {
-    foundation_test_ext().execute_with(|| -> DispatchResult {
-        init_reserve_balance()?;
+fn test_foundation_storage() {
+    foundation_test_ext().execute_with(|| {
+        assert_ok!(init_reserve_balance());
         let alice_reserve_balance = FoundationModule::foundation(ALICE);
         let bob_reserve_balance = FoundationModule::foundation(BOB);
         assert_eq!(alice_reserve_balance, 50000000000);
@@ -30,15 +30,13 @@ fn test_foundation_storage() -> DispatchResult {
         // assert have two map storage
         let len = <FoundationModule as crate::Store>::Foundation::iter().count();
         assert_eq!(len, 2);
-        Ok(())
-    })?;
-    Ok(())
+    });
 }
 
 #[test]
-fn test_delay_not_unlock() -> DispatchResult {
-    foundation_test_ext().execute_with(|| -> DispatchResult {
-        init_reserve_balance()?;
+fn test_delay_not_unlock() {
+    foundation_test_ext().execute_with(|| {
+        assert_ok!(init_reserve_balance());
         run_to_block(1);
         assert_eq!(Balances::reserved_balance(&ALICE), 50000000000);
         assert_eq!(Balances::reserved_balance(&BOB), 51000000000);
@@ -50,17 +48,13 @@ fn test_delay_not_unlock() -> DispatchResult {
         run_to_block(9);
         assert_eq!(Balances::reserved_balance(&ALICE), 50000000000);
         assert_eq!(Balances::reserved_balance(&BOB), 51000000000);
-
-        Ok(())
-    })?;
-
-    Ok(())
+    });
 }
 
 #[test]
-fn test_first_unlock() -> DispatchResult {
-    foundation_test_ext().execute_with(|| -> DispatchResult {
-        init_reserve_balance()?;
+fn test_first_unlock() {
+    foundation_test_ext().execute_with(|| {
+        assert_ok!(init_reserve_balance());
         run_to_block(10);
 
         // first free balance
@@ -74,17 +68,13 @@ fn test_first_unlock() -> DispatchResult {
         assert_eq!(Balances::reserved_balance(&ALICE), 49950000000);
         // free balance: 51000000, so reserved balance will be 50949000000
         assert_eq!(Balances::reserved_balance(&BOB), 50949000000);
-
-        Ok(())
-    })?;
-
-    Ok(())
+    });
 }
 
 #[test]
-fn test_middle_unlock() -> DispatchResult {
-    foundation_test_ext().execute_with(|| -> DispatchResult {
-        init_reserve_balance()?;
+fn test_middle_unlock() {
+    foundation_test_ext().execute_with(|| {
+        assert_ok!(init_reserve_balance());
         run_to_block(185);
 
         assert_eq!(Balances::reserved_balance(&ALICE), 49550000000);
@@ -97,47 +87,35 @@ fn test_middle_unlock() -> DispatchResult {
         run_to_block(13685);
         assert_eq!(Balances::reserved_balance(&ALICE), 15800000000);
         assert_eq!(Balances::reserved_balance(&BOB), 16116000000);
-
-        Ok(())
-    })?;
-
-    Ok(())
+    });
 }
 
 #[test]
-fn test_last_unlock() -> DispatchResult {
-    foundation_test_ext().execute_with(|| -> DispatchResult {
-        init_reserve_balance()?;
+fn test_last_unlock() {
+    foundation_test_ext().execute_with(|| {
+        assert_ok!(init_reserve_balance());
         run_to_block(19976);
 
         assert_eq!(Balances::reserved_balance(&ALICE), 50000000);
         assert_eq!(Balances::reserved_balance(&BOB), 51000000);
-
-        Ok(())
-    })?;
-
-    Ok(())
+    });
 }
 
 #[test]
-fn test_last_free_all_balance() -> DispatchResult {
-    foundation_test_ext().execute_with(|| -> DispatchResult {
-        init_reserve_balance()?;
+fn test_last_free_all_balance() {
+    foundation_test_ext().execute_with(|| {
+        assert_ok!(init_reserve_balance());
         run_to_block(19996);
 
         assert_eq!(Balances::reserved_balance(&ALICE), 0);
         assert_eq!(Balances::reserved_balance(&BOB), 0);
-
-        Ok(())
-    })?;
-
-    Ok(())
+    });
 }
 
 #[test]
-fn test_already_free_all_balance() -> DispatchResult {
-    foundation_test_ext().execute_with(|| -> DispatchResult {
-        init_reserve_balance()?;
+fn test_already_free_all_balance() {
+    foundation_test_ext().execute_with(|| {
+        assert_ok!(init_reserve_balance());
         run_to_block(20000);
 
         assert_eq!(Balances::reserved_balance(&ALICE), 0);
@@ -147,17 +125,13 @@ fn test_already_free_all_balance() -> DispatchResult {
 
         assert_eq!(Balances::reserved_balance(&ALICE), 0);
         assert_eq!(Balances::reserved_balance(&BOB), 0);
-
-        Ok(())
-    })?;
-
-    Ok(())
+    });
 }
 
 #[test]
-fn other_reason_to_reserve_balance() -> DispatchResult {
-    foundation_test_ext().execute_with(|| -> DispatchResult {
-        init_reserve_balance()?;
+fn other_reason_to_reserve_balance() {
+    foundation_test_ext().execute_with(|| {
+        assert_ok!(init_reserve_balance());
 
         run_to_block(5678);
         assert_eq!(Balances::reserved_balance(&ALICE), 35800000000);
@@ -165,9 +139,9 @@ fn other_reason_to_reserve_balance() -> DispatchResult {
 
         // other reason reserve balance
         // add 2000 to reserve balance
-        Balances::reserve(&ALICE, 2000)?;
+        assert_ok!(Balances::reserve(&ALICE, 2000));
         // add 182346 to reserve balance
-        Balances::reserve(&BOB, 182346)?;
+        assert_ok!(Balances::reserve(&BOB, 182346));
         assert_eq!(Balances::reserved_balance(&ALICE), 35800002000);
         assert_eq!(Balances::reserved_balance(&BOB), 36516182346);
 
@@ -180,9 +154,5 @@ fn other_reason_to_reserve_balance() -> DispatchResult {
 
         assert_eq!(Balances::reserved_balance(&ALICE), 2000);
         assert_eq!(Balances::reserved_balance(&BOB), 182346);
-
-        Ok(())
-    })?;
-
-    Ok(())
+    });
 }

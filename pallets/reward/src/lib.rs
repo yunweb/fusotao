@@ -21,7 +21,7 @@ use frame_support::{
     Parameter,
 };
 use frame_system::{ensure_root, ensure_signed};
-use fuso_support::traits::{Participants, ProofOfSecurity};
+use fuso_support::traits::ProofOfSecurity;
 use sp_runtime::traits::{
     AtLeast32BitUnsigned, CheckEqual, CheckedAdd, CheckedSub, Hash, MaybeDisplay,
     MaybeMallocSizeOf, MaybeSerializeDeserialize, Member,
@@ -48,8 +48,6 @@ pub trait Trait: frame_system::Trait {
     type Currency: ReservableCurrency<Self::AccountId>;
 
     type Era: Get<u32>;
-
-    type Participants: Participants<Self::AccountId>;
 
     type ExternalChainAddress: Parameter
         + Member

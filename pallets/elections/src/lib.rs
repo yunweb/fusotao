@@ -21,7 +21,9 @@ use frame_support::{
 };
 use frame_system::ensure_signed;
 use fuso_support::{collections::binary_heap::BinaryHeap, traits::Referendum};
-use sp_runtime::traits::{AtLeast32Bit, Bounded, CheckedAdd, CheckedSub, Member, One, Zero};
+use sp_runtime::traits::{
+    AtLeast32Bit, Bounded, CheckedAdd, CheckedSub, Member, One, Saturating, Zero,
+};
 use sp_runtime::RuntimeDebug;
 use sp_std::cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd};
 use sp_std::vec::Vec;
@@ -35,18 +37,18 @@ mod tests;
 // pledger struct
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Encode, Decode, Default, RuntimeDebug)]
 pub struct Pledger<AccountId, BlockNumber, Balance> {
-    account: AccountId,
+    pub account: AccountId,
     block_number: BlockNumber,
-    amount: Balance,
+    pub amount: Balance,
 }
 
 // voter struct
 #[derive(Eq, Clone, Encode, Decode, Default, RuntimeDebug)]
 pub struct Voter<VoteIndex: Eq, AccountId: Eq, BlockNumber: Eq, Balance: Ord> {
     round: VoteIndex,
-    account: AccountId,
+    pub account: AccountId,
     amount: Balance,
-    pledger: Vec<Pledger<AccountId, BlockNumber, Balance>>,
+    pub pledger: Vec<Pledger<AccountId, BlockNumber, Balance>>,
 }
 
 impl<V: Eq, A: Eq, B: Eq, T: Ord> PartialOrd for Voter<V, A, B, T> {
@@ -69,22 +71,27 @@ impl<V: Eq, A: Eq, B: Eq, T: Ord> PartialEq for Voter<V, A, B, T> {
 
 pub const ELECTIONS_ID: LockIdentifier = *b"election";
 
-pub type BalanceOf<T> = <<T as Trait>::Locks as pallet_balances::Trait>::Balance;
+pub type BalanceOf<T> = <T as pallet_balances::Trait>::Balance;
 
-pub type AccountIdOf<T> = <<T as Trait>::Locks as frame_system::Trait>::AccountId;
+pub type MemberOf<T> = BinaryHeap<
+    Voter<
+        <T as Trait>::VoteIndex,
+        <T as frame_system::Trait>::AccountId,
+        <T as frame_system::Trait>::BlockNumber,
+        BalanceOf<T>,
+    >,
+>;
 
-pub trait Trait: frame_system::Trait {
+pub trait Trait: frame_system::Trait + pallet_balances::Trait {
     type Event: From<Event<Self>> + Into<<Self as frame_system::Trait>::Event>;
 
     type Currency: LockableCurrency<Self::AccountId>;
 
-    type CandidatePeriod: Get<Self::BlockNumber>;
+    type VotePeriod: Get<Self::BlockNumber>;
 
     type MinimumVotingLock: Get<BalanceOf<Self>>;
 
     type VoteIndex: Parameter + Member + AtLeast32Bit + Bounded + Default + Copy;
-
-    type Locks: pallet_balances::Trait;
 }
 
 decl_event! {
@@ -106,7 +113,6 @@ decl_error! {
     pub enum Error for Module<T: Trait> {
         NoProposalStarted,
         ProposalOver,
-        VoteIsOver,
         AmountZero,
         AmountTooLow,
         InsufficientBalance,
@@ -115,10 +121,7 @@ decl_error! {
         NotCandidate,
         Overflow,
         NotCurrentVoteRound,
-        NotCandidatePeriod,
-        CandidatePeriodExpired,
         InvalidCandidate,
-        InvalidElectionsId,
     }
 }
 
@@ -127,7 +130,7 @@ decl_storage! {
         /// The present candidate list.
         Candidates get(fn candidates): Vec<T::AccountId>;
 
-        VoterMembers get(fn voter_members): BinaryHeap<Voter<T::VoteIndex, T::AccountId, T::BlockNumber, BalanceOf<T>>>;
+        VoterMembers get(fn voter_members): MemberOf<T>;
 
         VoteRoundCount get(fn vote_round_count): T::VoteIndex;
 
@@ -143,27 +146,19 @@ decl_module! {
 
         fn deposit_event() = default;
 
-        const CandidatePeriod: T::BlockNumber = T::CandidatePeriod::get();
+        const VotePeriod: T::BlockNumber = T::VotePeriod::get();
 
         /// The minimum amount to be used as a deposit for a public referendum proposal.
         const MinimumVotingLock: BalanceOf<T> = T::MinimumVotingLock::get();
 
         #[weight = 1_000]
-        fn init_proposal(origin, start: T::BlockNumber, end: T::BlockNumber) -> DispatchResult {
-            ensure_signed(origin)?;
-            Self::start_proposal(start, end);
-            Ok(())
-        }
-
-        #[weight = 1_000]
-        fn add_candidate(
+        pub fn add_candidate(
             origin,
             who: T::AccountId,
         ) -> DispatchResult {
             let sender = ensure_signed(origin)?;
 
-            // judging whether it's a candidate period
-            Self::is_candidate()?;
+            Self::is_proposal()?;
 
             // set who is candidate
             Self::set_candidate(&who)?;
@@ -173,8 +168,8 @@ decl_module! {
         }
 
         // vote
-        #[weight = 0]
-        fn vote(origin,
+        #[weight = 1_000]
+        pub fn vote(origin,
             voter: T::AccountId,
             vote_round: T::VoteIndex,
             #[compact] amount: BalanceOf<T>) -> DispatchResult {
@@ -201,13 +196,8 @@ decl_module! {
             // ensure input amount greater than or equal to MinimumVotingLock
             ensure!(amount >= T::MinimumVotingLock::get(), Error::<T>::AmountTooLow);
 
-            // sender encode
-            let from: Vec<u8> = sender.encode();
-
-            let account = <<T as Trait>::Locks as frame_system::Trait>::AccountId::decode(&mut from.as_ref()).unwrap_or_default();
-
             // try vote
-            Self::try_vote(&sender, &account, &voter, amount)?;
+            Self::try_vote(&sender, &voter, amount)?;
 
             Self::deposit_event(RawEvent::Voted(sender, voter, amount));
 
@@ -217,34 +207,6 @@ decl_module! {
 }
 
 impl<T: Trait> Module<T> {
-    fn is_candidate() -> DispatchResult {
-        // ensure start proposal
-        ensure!(
-            Self::start_block_number().is_some(),
-            Error::<T>::NoProposalStarted
-        );
-
-        let start_block_number = Self::start_block_number().unwrap();
-        let current_block_number = <frame_system::Module<T>>::block_number();
-
-        ensure!(
-            current_block_number < start_block_number,
-            Error::<T>::CandidatePeriodExpired
-        );
-
-        // if start block number less than candidate period, start candidate will be zero
-        let mut start_candidate = Zero::zero();
-        if start_block_number > T::CandidatePeriod::get() {
-            start_candidate = start_block_number - T::CandidatePeriod::get();
-        }
-
-        ensure!(
-            current_block_number >= start_candidate,
-            Error::<T>::NotCandidatePeriod
-        );
-        Ok(())
-    }
-
     fn is_proposal() -> DispatchResult {
         ensure!(
             Self::start_block_number().is_some(),
@@ -281,29 +243,25 @@ impl<T: Trait> Module<T> {
 
     fn try_vote(
         sender: &T::AccountId,
-        account: &AccountIdOf<T>,
         voter: &T::AccountId,
         amount: BalanceOf<T>,
     ) -> DispatchResult {
-        let total_balance: BalanceOf<T> =
-            <pallet_balances::Module<T::Locks>>::total_balance(account);
+        let total_balance = pallet_balances::Module::<T>::total_balance(sender);
         // account all lock balance
-        let lock_vec = pallet_balances::Locks::<T::Locks>::get(account);
-        let mut lock_total_balance: BalanceOf<T> = Zero::zero();
-        for i in lock_vec.iter() {
-            lock_total_balance = i
-                .amount
-                .checked_add(&lock_total_balance)
+        let lock_balance = pallet_balances::Module::<T>::locks(sender);
+        let election_lock = lock_balance.iter().find(|b| b.id == ELECTIONS_ID);
+
+        if let Some(lock) = election_lock {
+            // not lockable balance
+            let balance = lock.amount;
+            let free_balance = total_balance
+                .checked_sub(&balance)
                 .ok_or(Error::<T>::Overflow)?;
+
+            // ensure free balance greater than input amount
+            ensure!(free_balance > amount, Error::<T>::InsufficientBalance);
         }
 
-        // not lockable balance
-        let usable_balance = total_balance
-            .checked_sub(&lock_total_balance)
-            .ok_or(Error::<T>::Overflow)?;
-
-        // ensure usable balance greater than input amount
-        ensure!(usable_balance > amount, Error::<T>::InsufficientBalance);
 
         let voter_members = Self::voter_members();
         let voter_option = voter_members.iter().find(|v| &v.account == voter);
@@ -316,7 +274,7 @@ impl<T: Trait> Module<T> {
             Self::insert_vote(sender, voter, amount)?;
         }
 
-        Self::lock_currency(account, amount)?;
+        Self::lock_currency(sender, amount)?;
 
         Ok(())
     }
@@ -370,9 +328,7 @@ impl<T: Trait> Module<T> {
     ) -> DispatchResult {
         // update voter members
         let mut voter_members = Self::voter_members();
-        let mut new_voter_members: BinaryHeap<
-            Voter<T::VoteIndex, T::AccountId, T::BlockNumber, BalanceOf<T>>,
-        > = BinaryHeap::new();
+        let mut new_voter_members: MemberOf<T> = BinaryHeap::new();
 
         // iter voter members, and removed elements
         for i in voter_members.drain() {
@@ -424,21 +380,20 @@ impl<T: Trait> Module<T> {
     }
 
     // lock currency
-    fn lock_currency(account: &AccountIdOf<T>, amount: BalanceOf<T>) -> DispatchResult {
-        let lock_balance = pallet_balances::Locks::<T::Locks>::get(account);
+    fn lock_currency(account: &T::AccountId, amount: BalanceOf<T>) -> DispatchResult {
+        let lock_balance = pallet_balances::Module::<T>::locks(account);
         let vote_lock = lock_balance.iter().find(|b| b.id == ELECTIONS_ID);
         if let Some(lock) = vote_lock {
-            let total_lock_balance = amount
-                .checked_add(&lock.amount)
-                .ok_or(Error::<T>::Overflow)?;
-            <pallet_balances::Module<T::Locks>>::extend_lock(
+            let balance = lock.amount;
+            let total_lock_balance = amount.checked_add(&balance).ok_or(Error::<T>::Overflow)?;
+            pallet_balances::Module::<T>::extend_lock(
                 ELECTIONS_ID,
                 account,
                 total_lock_balance,
                 WithdrawReasons::all(),
             );
         } else {
-            <pallet_balances::Module<T::Locks>>::set_lock(
+            pallet_balances::Module::<T>::set_lock(
                 ELECTIONS_ID,
                 account,
                 amount,
@@ -448,7 +403,10 @@ impl<T: Trait> Module<T> {
         Ok(())
     }
 
-    pub fn start_proposal(start: T::BlockNumber, end: T::BlockNumber) -> T::VoteIndex {
+    pub fn start_proposal(start: T::BlockNumber) -> T::VoteIndex {
+        let candidate_period = T::VotePeriod::get();
+        let end_block = start.saturating_add(candidate_period);
+
         // initialize
         <Candidates<T>>::kill();
         <VoterMembers<T>>::kill();
@@ -457,30 +415,27 @@ impl<T: Trait> Module<T> {
         <StartBlockNumber<T>>::put(start);
 
         // set end block number
-        <EndBlockNumber<T>>::put(end);
+        <EndBlockNumber<T>>::put(end_block);
 
         <VoteRoundCount<T>>::put(Self::vote_round_count() + One::one());
 
         let count = Self::vote_round_count();
-        Self::deposit_event(RawEvent::StartProposal(start, end, count));
+        Self::deposit_event(RawEvent::StartProposal(start, end_block, count));
 
         count
     }
 }
 
-impl<T: Trait> Referendum<T::BlockNumber, T::VoteIndex> for Module<T> {
-    type Result =
-        Option<BinaryHeap<Voter<T::VoteIndex, T::AccountId, T::BlockNumber, BalanceOf<T>>>>;
-
-    fn proposal(start: T::BlockNumber, end: T::BlockNumber) -> T::VoteIndex {
-        Self::start_proposal(start, end)
+impl<T: Trait> Referendum<T::BlockNumber, T::VoteIndex, MemberOf<T>> for Module<T> {
+    fn proposal(start: T::BlockNumber) -> T::VoteIndex {
+        Self::start_proposal(start)
     }
 
-    fn is_end(index: T::VoteIndex) -> bool {
-        Self::vote_round_count() > index
+    fn get_round() -> T::VoteIndex {
+        Self::vote_round_count()
     }
 
-    fn get_result(index: T::VoteIndex) -> Self::Result {
+    fn get_result(index: T::VoteIndex) -> Option<MemberOf<T>> {
         if Self::vote_round_count() == index {
             return Some(Self::voter_members());
         } else {
