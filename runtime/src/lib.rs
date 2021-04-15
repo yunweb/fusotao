@@ -310,7 +310,7 @@ impl pallet_session::Trait for Runtime {
     type Keys = opaque::SessionKeys;
     type NextSessionRotation = Council;
     type ValidatorId = <Self as frame_system::Trait>::AccountId;
-    type ValidatorIdOf = Council;
+    type ValidatorIdOf = fuso_pallet_council::ValidatorOf<Self>;
     type DisabledValidatorsThreshold = ();
     type WeightInfo = ();
 }
