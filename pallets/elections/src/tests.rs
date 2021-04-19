@@ -114,7 +114,7 @@ fn test_vote() {
         assert_ok!(ElectionsModule::vote(Origin::signed(ALICE), BOB, 1, 10000));
         assert_eq!(ElectionsModule::voter_members().len(), 1);
 
-        if let Some(members) = ElectionsModule::voter_members().peek() {
+        if let Some(members) = ElectionsModule::voter_members().first() {
             let pledger = Pledger {
                 account: ALICE,
                 block_number: 120u64,
@@ -142,7 +142,7 @@ fn test_vote() {
         assert_eq!(Balances::locks(&ALICE)[0].amount, 19000);
 
         // ALICE is first voter
-        if let Some(members) = ElectionsModule::voter_members().peek() {
+        if let Some(members) = ElectionsModule::voter_members().first() {
             let pledger = Pledger {
                 account: ALICE,
                 block_number: 120u64,
@@ -164,7 +164,7 @@ fn test_vote() {
         // bob lock balance: 3000
         assert_eq!(Balances::locks(&BOB)[0].amount, 3000);
 
-        if let Some(members) = ElectionsModule::voter_members().peek() {
+        if let Some(members) = ElectionsModule::voter_members().first() {
             let pledger_first = Pledger {
                 account: ALICE,
                 block_number: 120u64,
@@ -198,5 +198,18 @@ fn test_vote() {
             Error::<Test>::NotCurrentVoteRound
         );
         assert_eq!(ElectionsModule::get_round(), 2);
+
+        // add DAVE
+        assert_ok!(ElectionsModule::add_candidate(Origin::signed(ALICE), ALICE));
+        assert_ok!(ElectionsModule::add_candidate(Origin::signed(ALICE), BOB));
+        assert_ok!(ElectionsModule::add_candidate(Origin::signed(ALICE), CHRIS));
+        assert_ok!(ElectionsModule::add_candidate(Origin::signed(ALICE), DAVE));
+        // vote DAVE
+        assert_ok!(ElectionsModule::vote(Origin::signed(ALICE), ALICE, 2, 9000));
+        assert_ok!(ElectionsModule::vote(Origin::signed(ALICE), BOB, 2, 9000));
+        assert_ok!(ElectionsModule::vote(Origin::signed(ALICE), CHRIS, 2, 9000));
+        assert_ok!(ElectionsModule::vote(Origin::signed(ALICE), DAVE, 2, 9000));
+
+        assert_eq!(ElectionsModule::voter_members().len(), 4);
     });
 }

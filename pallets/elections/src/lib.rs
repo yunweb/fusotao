@@ -20,7 +20,7 @@ use frame_support::{
     decl_error, decl_event, decl_module, decl_storage, dispatch::DispatchResult, ensure, Parameter,
 };
 use frame_system::ensure_signed;
-use fuso_support::{collections::binary_heap::BinaryHeap, traits::Referendum};
+use fuso_support::traits::Referendum;
 use sp_runtime::traits::{
     AtLeast32Bit, Bounded, CheckedAdd, CheckedSub, Member, One, Saturating, Zero,
 };
@@ -73,7 +73,7 @@ pub const ELECTIONS_ID: LockIdentifier = *b"election";
 
 pub type BalanceOf<T> = <T as pallet_balances::Trait>::Balance;
 
-pub type MemberOf<T> = BinaryHeap<
+pub type MemberOf<T> = Vec<
     Voter<
         <T as Trait>::VoteIndex,
         <T as frame_system::Trait>::AccountId,
@@ -313,10 +313,12 @@ impl<T: Trait> Module<T> {
             pledger: pledger_vec,
         };
 
-        VoterMembers::<T>::try_mutate(|voters| -> DispatchResult {
-            voters.push(voter_member);
-            Ok(())
-        })?;
+        let mut new_voter_members = Self::voter_members();
+        new_voter_members.push(voter_member);
+        // sort new_voter_members
+        new_voter_members.sort_by(|a, b| b.amount.cmp(&a.amount));
+
+        VoterMembers::<T>::put(new_voter_members);
 
         Ok(())
     }
@@ -328,10 +330,9 @@ impl<T: Trait> Module<T> {
     ) -> DispatchResult {
         // update voter members
         let mut voter_members = Self::voter_members();
-        let mut new_voter_members: MemberOf<T> = BinaryHeap::new();
 
         // iter voter members, and removed elements
-        for i in voter_members.drain() {
+        for i in voter_members.iter_mut() {
             let mut data = i;
             if &data.account == voter {
                 // current voter add amount
@@ -369,12 +370,13 @@ impl<T: Trait> Module<T> {
                     });
                 }
             }
-            // push new voter members
-            new_voter_members.push(data);
         }
 
+        // sort voter_members
+        voter_members.sort_by(|a, b| b.amount.cmp(&a.amount));
+
         // update storage from voter members
-        <VoterMembers<T>>::put(new_voter_members);
+        <VoterMembers<T>>::put(voter_members);
 
         Ok(())
     }

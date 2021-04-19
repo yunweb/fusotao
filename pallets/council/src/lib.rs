@@ -21,7 +21,6 @@ use frame_support::{
 };
 use frame_system::ensure_root;
 use fuso_pallet_elections::{BalanceOf, MemberOf, Pledger, ELECTIONS_ID};
-use fuso_support::collections::binary_heap::BinaryHeap;
 use fuso_support::traits::Referendum;
 use sp_runtime::traits::{Convert, One, Saturating};
 use sp_std::vec::Vec;
@@ -171,7 +170,7 @@ impl<T: Trait> Module<T> {
                 let max_validators = T::MaxValidators::get().try_into().unwrap();
 
                 if voter_members.len() > max_validators {
-                    let mut voter: MemberOf<T> = BinaryHeap::new();
+                    let mut voter: MemberOf<T> = Vec::new();
 
                     // get top max number
                     let mut session = BTreeSet::new();

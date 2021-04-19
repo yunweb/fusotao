@@ -263,7 +263,7 @@ fn test_change_lock_id() {
 
         assert_eq!(alice_lock_balance.len(), 1);
         assert_eq!(bob_lock_balance.len(), 0);
-        // total 21 voter amount
-        assert_eq!(alice_lock_balance[0].amount, 44880);
+        // total 21 voter amount: 45360
+        assert_eq!(alice_lock_balance[0].amount, 45360);
     });
 }
