@@ -108,7 +108,6 @@ decl_module! {
         fn on_initialize(now: T::BlockNumber) -> Weight {
             let round = T::Elections::get_round();
             if Self::end_session_block() == now {
-                debug::info!("init, round: {:?}", round);
                 <pallet_session::Module<T>>::rotate_session();
                 T::Elections::proposal(now);
             }
@@ -117,7 +116,6 @@ decl_module! {
                 if block == now {
                     let members = Self::update_validators(round);
                     if let Some(validators) = members {
-                        debug::info!("before set validators");
                         // to change lock id
                         Self::to_change_id();
                         let min_validators = T::MinValidators::get().try_into().unwrap();
@@ -142,7 +140,6 @@ impl<T: Trait> Module<T> {
     }
 
     fn initialize_validators(validators: &Vec<T::AccountId>) {
-        debug::info!("init validator: {:?}", validators);
         let init = validators
             .iter()
             .map(|x| x.clone())
@@ -247,13 +244,6 @@ impl<T: Trait> Module<T> {
                     if lock.amount > j.amount {
                         // sub lock amount
                         let lock_amount = lock.amount.saturating_sub(j.amount);
-                        debug::info!(
-                            "sub: account: {:?}, lock_balance: {:?}, unlock_balance: {:?}, lock_amount: {:?}",
-                            j.account,
-                            lock.amount,
-                            j.amount,
-                            lock_amount
-                        );
                         pallet_balances::Module::<T>::set_lock(
                             ELECTIONS_ID,
                             &j.account,
@@ -261,12 +251,6 @@ impl<T: Trait> Module<T> {
                             WithdrawReasons::all(),
                         );
                     } else {
-                        debug::info!(
-                            "remove lock: account: {:?}, lock_balance: {:?}, unlock_balance: {:?}",
-                            j.account,
-                            lock.amount,
-                            j.amount
-                        );
                         // remove lock amount
                         pallet_balances::Module::<T>::remove_lock(ELECTIONS_ID, &j.account);
                     }
@@ -289,10 +273,8 @@ impl<T: Trait> pallet_session::ShouldEndSession<T::BlockNumber> for Module<T> {
 
 impl<T: Trait> pallet_session::SessionManager<T::AccountId> for Module<T> {
     fn new_session(new_index: u32) -> Option<Vec<T::AccountId>> {
-        debug::info!("new_index: {:?}", new_index);
         // set validators from vote pallet
         let validators = Self::validators().iter().cloned().collect();
-        debug::info!("session validators: {:?}", validators);
         Some(validators)
     }
 
