@@ -157,8 +157,7 @@ impl<T: Trait> Module<T> {
                 // last round sessions, unlock currency
                 let current_validators = Self::members();
                 for i in current_validators.iter() {
-                    let pledger = i.pledger.clone();
-                    for j in pledger.iter() {
+                    for j in i.pledger.iter() {
                         // unlock sessions currency
                         Self::unlock_currency(SESSIONS_ID, &j.account);
                     }
@@ -177,8 +176,7 @@ impl<T: Trait> Module<T> {
                             voter.push(item.clone());
                         } else {
                             // unlock pledger currency
-                            let pledger = item.pledger.clone();
-                            Self::unlock_pledger_currency(pledger, false);
+                            Self::unlock_pledger_currency(&item.pledger, false);
                         }
                     }
 
@@ -196,8 +194,7 @@ impl<T: Trait> Module<T> {
             } else if voter_members.len() > 0 {
                 // unlock all ledger currency
                 for i in voter_members.iter() {
-                    let pledger = i.pledger.clone();
-                    Self::unlock_pledger_currency(pledger, true);
+                    Self::unlock_pledger_currency(&i.pledger, true);
                 }
             }
             return None;
@@ -208,8 +205,7 @@ impl<T: Trait> Module<T> {
     fn to_change_id() {
         let members = Self::members();
         for i in members.iter() {
-            let pledger = i.pledger.clone();
-            for j in pledger.iter() {
+            for j in i.pledger.iter() {
                 Self::change_lock_id(&j.account);
             }
         }
@@ -231,7 +227,7 @@ impl<T: Trait> Module<T> {
 
     // unlock pledger currency
     fn unlock_pledger_currency(
-        pledger: Vec<Pledger<T::AccountId, T::BlockNumber, BalanceOf<T>>>,
+        pledger: &Vec<Pledger<T::AccountId, T::BlockNumber, BalanceOf<T>>>,
         is_unlock_all: bool,
     ) {
         for j in pledger.iter() {
