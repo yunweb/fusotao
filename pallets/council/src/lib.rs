@@ -14,13 +14,13 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 use frame_support::{
-    debug, decl_error, decl_event, decl_module, decl_storage,
+    decl_error, decl_event, decl_module, decl_storage,
     traits::Get,
     traits::{LockIdentifier, LockableCurrency, WithdrawReasons},
     weights::Weight,
 };
 use frame_system::ensure_root;
-use fuso_pallet_elections::{BalanceOf, MemberOf, Pledger, ELECTIONS_ID};
+use fuso_pallet_elections::{BalanceOf, Pledger, VoterOf, ELECTIONS_ID};
 use fuso_support::traits::Referendum;
 use sp_runtime::traits::{Convert, One, Saturating};
 use sp_std::vec::Vec;
@@ -47,13 +47,13 @@ pub trait Trait:
 
     type StartCouncil: Get<Self::BlockNumber>;
 
-    type Elections: Referendum<Self::BlockNumber, u32, MemberOf<Self>>;
+    type Elections: Referendum<Self::BlockNumber, u32, VoterOf<Self>>;
 }
 
 decl_storage! {
     trait Store for Module<T: Trait> as Council {
 
-        pub Members get(fn members): MemberOf<T>;
+        pub Members get(fn members): Vec<VoterOf<T>>;
 
         pub Validators get(fn validators): BTreeSet<T::AccountId>;
 
@@ -166,7 +166,7 @@ impl<T: Trait> Module<T> {
                 let max_validators = T::MaxValidators::get().try_into().unwrap();
 
                 if voter_members.len() > max_validators {
-                    let mut voter: MemberOf<T> = Vec::new();
+                    let mut voter: Vec<VoterOf<T>> = Vec::new();
 
                     // get top max number
                     let mut session = BTreeSet::new();

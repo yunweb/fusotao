@@ -20,7 +20,7 @@ use frame_support::{
     decl_error, decl_event, decl_module, decl_storage, dispatch::DispatchResult, ensure, Parameter,
 };
 use frame_system::ensure_signed;
-use fuso_support::traits::Referendum;
+use fuso_support::{collections::binary_heap::BinaryHeap, traits::Referendum};
 use sp_runtime::traits::{
     AtLeast32Bit, Bounded, CheckedAdd, CheckedSub, Member, One, Saturating, Zero,
 };
@@ -73,14 +73,14 @@ pub const ELECTIONS_ID: LockIdentifier = *b"election";
 
 pub type BalanceOf<T> = <T as pallet_balances::Trait>::Balance;
 
-pub type MemberOf<T> = Vec<
-    Voter<
-        <T as Trait>::VoteIndex,
-        <T as frame_system::Trait>::AccountId,
-        <T as frame_system::Trait>::BlockNumber,
-        BalanceOf<T>,
-    >,
+pub type VoterOf<T> = Voter<
+    <T as Trait>::VoteIndex,
+    <T as frame_system::Trait>::AccountId,
+    <T as frame_system::Trait>::BlockNumber,
+    BalanceOf<T>,
 >;
+
+pub type MemberOf<T> = BinaryHeap<VoterOf<T>>;
 
 pub trait Trait: frame_system::Trait + pallet_balances::Trait {
     type Event: From<Event<Self>> + Into<<Self as frame_system::Trait>::Event>;
@@ -313,12 +313,10 @@ impl<T: Trait> Module<T> {
             pledger: pledger_vec,
         };
 
-        let mut new_voter_members = Self::voter_members();
-        new_voter_members.push(voter_member);
-        // sort new_voter_members
-        new_voter_members.sort_by(|a, b| b.amount.cmp(&a.amount));
-
-        VoterMembers::<T>::put(new_voter_members);
+        VoterMembers::<T>::try_mutate(|voters| -> DispatchResult {
+            voters.push(voter_member);
+            Ok(())
+        })?;
 
         Ok(())
     }
@@ -329,10 +327,10 @@ impl<T: Trait> Module<T> {
         amount: BalanceOf<T>,
     ) -> DispatchResult {
         // update voter members
-        let mut voter_members = Self::voter_members();
-
+        let voter_members = Self::voter_members();
+        let mut vec = voter_members.into_vec();
         // iter voter members, and removed elements
-        for i in voter_members.iter_mut() {
+        for i in vec.iter_mut() {
             let mut data = i;
             if &data.account == voter {
                 // current voter add amount
@@ -372,11 +370,8 @@ impl<T: Trait> Module<T> {
             }
         }
 
-        // sort voter_members
-        voter_members.sort_by(|a, b| b.amount.cmp(&a.amount));
-
         // update storage from voter members
-        <VoterMembers<T>>::put(voter_members);
+        <VoterMembers<T>>::put(BinaryHeap::from(vec));
 
         Ok(())
     }
@@ -428,7 +423,7 @@ impl<T: Trait> Module<T> {
     }
 }
 
-impl<T: Trait> Referendum<T::BlockNumber, T::VoteIndex, MemberOf<T>> for Module<T> {
+impl<T: Trait> Referendum<T::BlockNumber, T::VoteIndex, VoterOf<T>> for Module<T> {
     fn proposal(start: T::BlockNumber) -> T::VoteIndex {
         Self::start_proposal(start)
     }
@@ -437,9 +432,12 @@ impl<T: Trait> Referendum<T::BlockNumber, T::VoteIndex, MemberOf<T>> for Module<
         Self::vote_round_count()
     }
 
-    fn get_result(index: T::VoteIndex) -> Option<MemberOf<T>> {
+    fn get_result(index: T::VoteIndex) -> Option<Vec<VoterOf<T>>> {
         if Self::vote_round_count() == index {
-            return Some(Self::voter_members());
+            let heap = Self::voter_members();
+            let mut vec = heap.into_sorted_vec();
+            vec.reverse();
+            return Some(vec);
         } else {
             None
         }

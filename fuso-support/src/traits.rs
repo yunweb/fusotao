@@ -68,7 +68,7 @@ pub trait Referendum<BlockNumber, Index, Members> {
 
     fn get_round() -> Index;
 
-    fn get_result(index: Index) -> Option<Members>;
+    fn get_result(index: Index) -> Option<Vec<Members>>;
 }
 
 pub type ExternalTransactionId = u64;
