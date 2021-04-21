@@ -43,7 +43,6 @@ parameter_types! {
     pub const MaximumBlockWeight: Weight = 1024;
     pub const MaximumBlockLength: u32 = 2 * 1024;
     pub const AvailableBlockRatio: Perbill = Perbill::from_percent(75);
-    pub const MinimumVotingLock: u64 = 1000;
 
     pub const ExistentialDeposit: u64 = 1;
     pub const TransferFee: u128 = 0;

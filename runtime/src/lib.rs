@@ -260,17 +260,16 @@ impl pallet_balances::Trait for Runtime {
 }
 
 parameter_types! {
-    pub const CandidatePeriod: BlockNumber = 14 * DAYS;
+    pub const VotePeriod: BlockNumber = 14 * DAYS;
     pub const MinimumVotingLock: Balance = 1 * DOLLARS;
 }
 
 impl fuso_pallet_elections::Trait for Runtime {
     type Event = Event;
     type Currency = Balances;
-    type CandidatePeriod = CandidatePeriod;
+    type VotePeriod = VotePeriod;
     type MinimumVotingLock = MinimumVotingLock;
     type VoteIndex = u32;
-    type Locks = Runtime;
 }
 
 parameter_types! {
@@ -288,14 +287,19 @@ impl fuso_pallet_foundation::Trait for Runtime {
 }
 
 parameter_types! {
-    pub const CouncilTerm: u32 = 8;
-    pub const MaxMembers: u32 = 21;
+    pub const StartCouncil: BlockNumber = 10;
+    pub const CouncilTerm: BlockNumber = 93 * DAYS;
+    pub const MinValidators: u32 = 6;
+    pub const MaxValidators: u32 = 21;
 }
 
 impl fuso_pallet_council::Trait for Runtime {
     type Event = Event;
     type CouncilTerm = CouncilTerm;
-    type MaxMembers = MaxMembers;
+    type MinValidators = MinValidators;
+    type MaxValidators = MaxValidators;
+    type Elections = Elections;
+    type StartCouncil = StartCouncil;
 }
 
 impl pallet_session::Trait for Runtime {
@@ -304,9 +308,9 @@ impl pallet_session::Trait for Runtime {
     type ShouldEndSession = Council;
     type SessionManager = Council;
     type Keys = opaque::SessionKeys;
-    type NextSessionRotation = ();
+    type NextSessionRotation = Council;
     type ValidatorId = <Self as frame_system::Trait>::AccountId;
-    type ValidatorIdOf = Council;
+    type ValidatorIdOf = fuso_pallet_council::ValidatorOf<Self>;
     type DisabledValidatorsThreshold = ();
     type WeightInfo = ();
 }
@@ -410,7 +414,7 @@ construct_runtime!(
         Sudo: pallet_sudo::{Module, Call, Config<T>, Storage, Event<T>},
         Receipts: fuso_pallet_receipts::{Module, Call, Storage, Event<T>},
         Token: fuso_pallet_token::{Module, Call, Storage, Event<T>},
-        Elections: fuso_pallet_elections::{Module, Call, Storage, Event<T>},
+        Elections: fuso_pallet_elections::{Module, Event<T>},
         Foundation: fuso_pallet_foundation::{Module, Call, Storage, Config<T>, Event<T>},
         Samsara: fuso_pallet_samsara::{Module, Call, Storage, Event<T>},
     }
