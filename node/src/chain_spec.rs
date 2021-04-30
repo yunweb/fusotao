@@ -45,6 +45,9 @@ pub fn authority_keys_from_seed(s: &str) -> (AccountId, AuraId, GrandpaId) {
 }
 
 pub fn development_config() -> Result<ChainSpec, String> {
+    let mut prop = sc_service::Properties::new();
+    prop.insert("tokenDecimals".to_string(), 18.into());
+    prop.insert("tokenSymbol".to_string(), "TAO".into());
     let wasm_binary = WASM_BINARY.ok_or("Development wasm binary not available".to_string())?;
     Ok(ChainSpec::from_genesis(
         // Name
@@ -83,11 +86,11 @@ pub fn development_config() -> Result<ChainSpec, String> {
         // Telemetry
         None,
         // Protocol ID
-        None,
+        Some("fusotao"),
         // Properties
-        None,
+        Some(prop),
         // Extensions
-        None,
+        Default::default(),
     ))
 }
 
@@ -110,11 +113,11 @@ fn testnet_genesis(
             changes_trie_config: Default::default(),
         }),
         pallet_balances: Some(BalancesConfig {
-            // Configure endowed accounts with initial balance of 1 << 60.
+            // Configure endowed accounts with initial balance of 1 << 90.
             balances: endowed_accounts
                 .iter()
                 .cloned()
-                .map(|k| (k, 1 << 60))
+                .map(|k| (k, 1 << 90))
                 .collect(),
         }),
         pallet_session: Some(SessionConfig {
